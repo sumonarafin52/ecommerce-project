@@ -234,19 +234,25 @@ export default function Header() {
           </div>
 
           <Link
-            href="/cart"
-            className="relative flex items-end gap-1 p-1 rounded border border-transparent hover:border-white/40"
-          >
-            <svg className="w-7 h-7" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2 5h14M9 21a1 1 0 100-2 1 1 0 000 2zm8 0a1 1 0 100-2 1 1 0 000 2z"
-              />
-            </svg>
-            <span className="absolute top-0 left-4 text-accent font-bold text-sm">{cartCount}</span>
-            <span className="hidden sm:block text-xs font-bold pb-0.5">{t.cart}</span>
-          </Link>
+  href="/cart"
+  className="relative flex items-end gap-1 p-1 rounded border border-transparent hover:border-white/40"
+>
+  <div className="relative">
+    <svg className="w-7 h-7" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24">
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 00-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 00-16.536-1.84M7.5 14.25L5.106 5.272M6 20.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm12.75 0a.75.75 0 11-1.5 0 .75.75 0 011.5 0z"
+      />
+    </svg>
+    {cartCount > 0 && (
+      <span className="absolute -top-2 -right-2 min-w-[18px] h-[18px] px-1 rounded-full bg-accent text-primary text-[11px] font-bold flex items-center justify-center shadow-glow">
+        {cartCount}
+      </span>
+    )}
+  </div>
+  <span className="hidden sm:block text-xs font-bold pb-0.5">{t.cart}</span>
+</Link>
         </div>
 
         {/* Row 2: category nav bar */}

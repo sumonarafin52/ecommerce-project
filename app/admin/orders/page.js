@@ -41,7 +41,11 @@ export default function AdminOrdersPage() {
     fetch("/api/orders")
       .then((r) => r.json())
       .then((res) => {
-        if (res.success) setOrders(res.data);
+        if (res.success) {
+          const ordersData = res.data;
+          const ordersList = Array.isArray(ordersData) ? ordersData : (ordersData.orders || []);
+          setOrders(ordersList);
+        }
       })
       .catch(() => {})
       .finally(() => setLoading(false));
@@ -128,7 +132,7 @@ export default function AdminOrdersPage() {
               <tbody>
                 {orders.map((o) => (
                   <tr key={o._id} className="border-b border-white/5 hover:bg-white/5 transition-colors">
-                    <td className="p-4 font-bold text-white">#{o._id.slice(-6).toUpperCase()}</td>
+                    <td className="p-4 font-bold text-white">#{(o._id || "").slice(-6).toUpperCase()}</td>
                     <td className="p-4 text-zinc-300">
                       {o.user?.name || "Unknown"}
                       <p className="text-xs text-zinc-500">{o.user?.email}</p>
@@ -163,7 +167,7 @@ export default function AdminOrdersPage() {
           >
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-bold text-white">
-                Order #{selected._id.slice(-6).toUpperCase()}
+                Order #{(selected._id || "").slice(-6).toUpperCase()}
               </h2>
               <button
                 type="button"
@@ -176,16 +180,16 @@ export default function AdminOrdersPage() {
             </div>
 
             <div className="space-y-1 text-sm text-zinc-300 bg-black/20 rounded-md p-3 border border-white/5">
-              <p><span className="text-zinc-500">Name:</span> {selected.shippingAddress.fullName}</p>
-              <p><span className="text-zinc-500">Phone:</span> {selected.shippingAddress.phone}</p>
-              <p><span className="text-zinc-500">Address:</span> {selected.shippingAddress.address}, {selected.shippingAddress.city}</p>
+              <p><span className="text-zinc-500">Name:</span> {selected.shippingAddress?.fullName}</p>
+              <p><span className="text-zinc-500">Phone:</span> {selected.shippingAddress?.phone}</p>
+              <p><span className="text-zinc-500">Address:</span> {selected.shippingAddress?.address}, {selected.shippingAddress?.city}</p>
             </div>
 
             <div className="space-y-2 max-h-40 overflow-y-auto no-scrollbar bg-black/20 rounded-md p-3 border border-white/5">
-              {selected.items.map((it, i) => (
+              {(selected.items || []).map((it, i) => (
                 <div key={i} className="flex justify-between text-sm text-zinc-300">
                   <span className="line-clamp-1 max-w-[70%]">{it.name} (×{it.quantity})</span>
-                  <span className="font-bold text-accent">{formatCurrency(it.price * it.quantity)}</span>
+                  <span className="font-bold text-accent">{formatCurrency((it.price || 0) * it.quantity)}</span>
                 </div>
               ))}
             </div>
