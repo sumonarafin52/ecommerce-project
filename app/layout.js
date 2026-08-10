@@ -1,20 +1,26 @@
-import "../styles/globals.css";
+// app/layout.js
+import { Inter } from "next/font/google";
+import "@/styles/globals.css";
 import Header from "@/components/layout/Header";
 import Footer from "@/components/layout/Footer";
+import Providers from "@/components/Providers";
+
+const inter = Inter({ subsets: ["latin"] });
 
 export const metadata = {
-  title: "MyShop | Online Store",
-  description: "High quality products at the best price.",
-  // TODO: SEO metadata (og:image, keywords, etc.) এখানে যোগ করো
+  title: "SumonShop - Online Shopping",
+  description: "Best online shopping experience",
 };
 
 export default function RootLayout({ children }) {
   return (
     <html lang="en">
-      <body className="flex min-h-screen flex-col bg-white text-primary">
-        <Header />
-        <main className="flex-1">{children}</main>
-        <Footer />
+      <body className={inter.className}>
+        <Providers>
+          <Header />
+          <main className="min-h-screen">{children}</main>
+          <Footer />
+        </Providers>
       </body>
     </html>
   );
