@@ -10,11 +10,11 @@ const orderSchema = new mongoose.Schema(
       index: true,
     },
     user: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
-      required: true,
-      index: true,
-    },
+  type: mongoose.Schema.Types.ObjectId,
+  ref: "User",
+  required: true,
+  // Remove: index: true,  ← Delete this line
+},
     items: [
       {
         product: {

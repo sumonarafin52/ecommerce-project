@@ -1,4 +1,3 @@
-// app/api/checkout/route.js
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import SslCommerzPayment from "sslcommerz-lts";
@@ -6,13 +5,11 @@ import connectDB from "@/lib/db";
 import Order from "@/models/Order";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 
-const storeId = process.env.SSLCOMMERZ_STORE_ID;
-const storePass = process.env.SSLCOMMERZ_STORE_PASS;
-const isLive = process.env.SSLCOMMERZ_IS_LIVE === "true"; // true for live, false for sandbox
+const storeId = process.env.SSLCOMMERZ_STORE_ID || "";
+const storePass = process.env.SSLCOMMERZ_STORE_PASS || "";
+const isLive = process.env.SSLCOMMERZ_IS_LIVE === "true";
 
-if (!storeId || !storePass) {
-  throw new Error("SSLCommerz credentials not configured");
-}
+// ✅ Removed the throw error check from here - will validate at runtime
 
 export async function POST(request) {
   try {
@@ -46,13 +43,11 @@ export async function POST(request) {
       } else if (status === "FAILED") {
         order.paymentStatus = "failed";
       } else if (status === "CANCELLED") {
-        // Keep as pending so user can retry
         order.paymentStatus = "pending";
       }
 
       await order.save();
 
-      // Redirect to profile with payment result
       const redirectUrl =
         status === "VALID" || status === "VALIDATED"
           ? `${origin}/profile?orderId=${order._id}&payment=success`
@@ -76,6 +71,14 @@ export async function POST(request) {
       return NextResponse.json(
         { success: false, message: "Order ID is required" },
         { status: 400 }
+      );
+    }
+
+    // ✅ Validate credentials at runtime, not build time
+    if (!storeId || !storePass) {
+      return NextResponse.json(
+        { success: false, message: "SSLCommerz not configured" },
+        { status: 500 }
       );
     }
 
@@ -108,7 +111,7 @@ export async function POST(request) {
     const paymentResult = await sslcz.init({
       total_amount: order.totalAmount,
       currency: "BDT",
-      tran_id: order._id.toString(), // Must be unique
+      tran_id: order._id.toString(),
       success_url: `${origin}/api/checkout`,
       fail_url: `${origin}/api/checkout`,
       cancel_url: `${origin}/api/checkout`,

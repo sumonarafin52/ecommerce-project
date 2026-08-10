@@ -2,11 +2,13 @@
 "use client";
 
 import { useState } from "react";
-import { useCartStore } from "@/store/cartStore";
+import useCartStore from "@/store/cartStore";  // ✅ Fixed
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import toast from "react-hot-toast";
 import { formatCurrency } from "@/lib/utils";
+
+// ... rest of the code same
 
 export default function CheckoutPage() {
   const router = useRouter();
