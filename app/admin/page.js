@@ -22,15 +22,21 @@ export default function AdminPage() {
       fetch("/api/orders").then((r) => r.json()),
     ])
       .then(([prodRes, orderRes]) => {
-        if (prodRes.success) setStats((s) => ({ ...s, products: prodRes.data.total }));
+        // products API returns { data: { products, total } }
+        if (!product) {
+          const total = typeof prodRes.data === "object" ? prodRes.data.total : prodRes.data.total;
+          setStats((s) => ({ ...s, products: total || 0 }));
+        }
+        // orders API returns { data: { orders, total, page, totalPages } }
         if (orderRes.success) {
-          const orders = orderRes.data;
+          const ordersData = orderRes.data;
+          const orders = Array.isArray(ordersData) ? ordersData : (ordersData.orders || []);
           setStats((s) => ({
             ...s,
             orders: orders.length,
             revenue: orders
               .filter((o) => o.paymentStatus === "paid")
-              .reduce((sum, o) => sum + o.totalAmount, 0),
+              .reduce((sum, o) => sum + (o.totalAmount || 0), 0),
             pending: orders.filter((o) => o.orderStatus === "processing").length,
           }));
           setRecent(orders.slice(0, 5));
@@ -112,7 +118,7 @@ export default function AdminPage() {
               <table className="w-full text-sm text-left">
                 <thead>
                   <tr className="text-zinc-400 border-b border-white/10">
-                    <th className="py-2 pr-4 font-medium">Orders</th>
+                    <th className="py-2 pr-4 font-medium">Order</th>
                     <th className="py-2 pr-4 font-medium">Customer</th>
                     <th className="py-2 pr-4 font-medium">Date</th>
                     <th className="py-2 pr-4 font-medium">Total</th>
@@ -122,7 +128,7 @@ export default function AdminPage() {
                 <tbody>
                   {recent.map((o) => (
                     <tr key={o._id} className="border-b border-white/5 text-zinc-200">
-                      <td className="py-2.5 pr-4 font-bold">#{o._id.slice(-6).toUpperCase()}</td>
+                      <td className="py-2.5 pr-4 font-bold">#{(o._id || "").slice(-6).toUpperCase()}</td>
                       <td className="py-2.5 pr-4">{o.user?.name || "Customer"}</td>
                       <td className="py-2.5 pr-4 text-zinc-400">{formatDate(o.createdAt)}</td>
                       <td className="py-2.5 pr-4 font-bold text-accent">{formatCurrency(o.totalAmount)}</td>
