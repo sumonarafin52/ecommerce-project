@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 export default function ProfilePage() {
   // TODO: logged-in user info (session থেকে getServerSession দিয়ে আনো)
   // TODO: order history list (/api/orders?user=... থেকে fetch)

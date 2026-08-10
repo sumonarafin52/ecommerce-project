@@ -1,3 +1,5 @@
+
+export const dynamic = 'force-dynamic';
 export default function RegisterPage() {
   // TODO: name, email, password form
   // TODO: submit করলে /api/users (POST) call করবে যেটা bcrypt দিয়ে password hash করে save করবে

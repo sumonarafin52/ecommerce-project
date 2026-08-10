@@ -1,5 +1,5 @@
 import ProductGrid from "@/components/product/ProductGrid";
-
+export const dynamic = 'force-dynamic';
 export default function HomePage() {
   // TODO: এখানে API থেকে featured/latest products fetch করে ProductGrid-এ পাঠাও
   // এই file-এ Hero section, Category showcase ইত্যাদির code বসবে

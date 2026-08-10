@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 export default function LoginPage() {
   // TODO: email + password form
   // TODO: signIn() from next-auth/react দিয়ে submit করো

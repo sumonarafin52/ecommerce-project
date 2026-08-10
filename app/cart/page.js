@@ -1,7 +1,7 @@
 "use client";
 import useCartStore from "@/store/cartStore";
 import CartItem from "@/components/cart/CartItem";
-
+export const dynamic = 'force-dynamic';
 export default function CartPage() {
   const items = useCartStore((state) => state.items);
   // TODO: cart items list করো, subtotal calculate করো, "Proceed to Checkout" বাটন

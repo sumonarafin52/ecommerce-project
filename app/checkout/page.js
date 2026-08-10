@@ -1,6 +1,8 @@
 // app/checkout/page.js
 "use client";
 
+export const dynamic = 'force-dynamic';
+
 import { useState } from "react";
 import useCartStore from "@/store/cartStore";  // ✅ Fixed
 import { useRouter } from "next/navigation";

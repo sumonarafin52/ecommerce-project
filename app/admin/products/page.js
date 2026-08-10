@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 export default function AdminProductsPage() {
   // TODO: product list table (edit/delete button সহ)
   // TODO: "Add New Product" form/modal - /api/products (POST) call করবে

@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 export default function AdminDashboardPage() {
   // TODO: role check করো (শুধু admin user access পাবে)
   // TODO: total sales, total orders, total products - এই ধরনের summary card
