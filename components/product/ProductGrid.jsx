@@ -1,15 +1,19 @@
-import ProductCard from "./ProductCard";
+// components/product/ProductGrid.jsx
+import ProductCard from "@/components/product/ProductCard";
 
-export default function ProductGrid({ products = [] }) {
+export default function ProductGrid({ products = [], emptyMessage = "No products found" }) {
   if (products.length === 0) {
-    // TODO: empty state design ভালো করো
-    return <p className="text-primary-light">No products found.</p>;
+    return (
+      <div className="text-center py-16 text-zinc-400 border border-dashed border-white/10 rounded-lg">
+        {emptyMessage}
+      </div>
+    );
   }
 
   return (
-    <div className="grid grid-cols-2 gap-6 sm:grid-cols-3 lg:grid-cols-4">
-      {products.map((product) => (
-        <ProductCard key={product._id} product={product} />
+    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
+      {products.map((p) => (
+        <ProductCard key={p._id} product={p} />
       ))}
     </div>
   );

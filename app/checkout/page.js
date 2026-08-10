@@ -1,301 +1,173 @@
 // app/checkout/page.js
 "use client";
 
-export const dynamic = 'force-dynamic';
-
 import { useState } from "react";
-import useCartStore from "@/store/cartStore";  // ✅ Fixed
-import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { useSession } from "next-auth/react";
-import toast from "react-hot-toast";
-import { formatCurrency } from "@/lib/utils";
+import useCartStore from "@/store/cartStore";
+import { formatCurrency, getEffectivePrice } from "@/lib/utils";
 
-// ... rest of the code same
+const inputCls =
+  "w-full bg-primary-light border border-white/15 rounded-md px-3 py-2.5 text-sm text-white placeholder-zinc-500 outline-none focus:border-accent transition-colors";
 
 export default function CheckoutPage() {
-  const router = useRouter();
   const { data: session, status } = useSession();
-  const { items, getTotalPrice, clearCart } = useCartStore();
+  const items = useCartStore((s) => s.items);
+  const clearCart = useCartStore((s) => s.clearCart);
 
-  const [loading, setLoading] = useState(false);
-  const [formData, setFormData] = useState({
-    fullName: "",
-    phone: "",
-    address: "",
-    city: "",
-    paymentMethod: "sslcommerz",
-  });
+  const [form, setForm] = useState({ fullName: "", phone: "", address: "", city: "" });
+  const [error, setError] = useState("");
+  const [placing, setPlacing] = useState(false);
 
-  // Redirect to login if not authenticated
+  const total = items.reduce((sum, i) => sum + getEffectivePrice(i) * i.quantity, 0);
+
+  const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
+
+  const placeOrder = async (e) => {
+    e.preventDefault();
+    setError("");
+    if (!form.fullName || !form.phone || !form.address || !form.city) {
+      setError("Please fill in all shipping fields.");
+      return;
+    }
+    setPlacing(true);
+    try {
+      const orderRes = await fetch("/api/orders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          items: items.map((i) => ({ product: i._id, quantity: i.quantity })),
+          shippingAddress: form,
+          paymentMethod: "sslcommerz",
+        }),
+      }).then((r) => r.json());
+
+      if (!orderRes.success) throw new Error(orderRes.message);
+
+      const payRes = await fetch("/api/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderId: orderRes.data._id }),
+      }).then((r) => r.json());
+
+      if (!payRes.success || !payRes.data.url) {
+        throw new Error(payRes.message || "Payment initiation failed");
+      }
+
+      clearCart();
+      window.location.href = payRes.data.url;
+    } catch (err) {
+      setError(err.message);
+      setPlacing(false);
+    }
+  };
+
   if (status === "loading") {
-    return <div className="text-center py-10">Loading...</div>;
+    return (
+      <div className="bg-primary min-h-screen flex items-center justify-center">
+        <div className="w-10 h-10 border-4 border-accent border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
   }
 
   if (!session) {
     return (
-      <div className="mx-auto max-w-3xl px-4 py-10">
-        <p>Please login to proceed with checkout</p>
-        <button
-          onClick={() => router.push("/login")}
-          className="mt-4 rounded bg-primary px-6 py-2 text-white"
+      <div className="bg-primary min-h-screen flex flex-col items-center justify-center gap-4 text-center px-4">
+        <p className="text-xl font-bold text-white">Login required</p>
+        <p className="text-sm text-zinc-400">Please sign in to place your order.</p>
+        <Link
+          href="/login"
+          className="bg-accent hover:bg-accent/80 text-primary font-bold px-6 py-3 rounded-md transition-colors"
         >
-          Go to Login
-        </button>
+          Sign in
+        </Link>
       </div>
     );
   }
 
-  // Redirect if cart is empty
   if (items.length === 0) {
     return (
-      <div className="mx-auto max-w-3xl px-4 py-10">
-        <p>Your cart is empty</p>
-        <button
-          onClick={() => router.push("/products")}
-          className="mt-4 rounded bg-primary px-6 py-2 text-white"
+      <div className="bg-primary min-h-screen flex flex-col items-center justify-center gap-4 text-center px-4">
+        <p className="text-xl font-bold text-white">Your cart is empty</p>
+        <Link
+          href="/products"
+          className="bg-accent hover:bg-accent/80 text-primary font-bold px-6 py-3 rounded-md transition-colors"
         >
-          Continue Shopping
-        </button>
+          Start Shopping
+        </Link>
       </div>
     );
   }
 
-  const handleChange = (e) => {
-    const { name, value } = e.target;
-    setFormData((prev) => ({ ...prev, [name]: value }));
-  };
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setLoading(true);
-
-    try {
-      // Validate form
-      if (
-        !formData.fullName.trim() ||
-        !formData.phone.trim() ||
-        !formData.address.trim() ||
-        !formData.city.trim()
-      ) {
-        toast.error("All fields are required");
-        setLoading(false);
-        return;
-      }
-
-      // Create order
-      const response = await fetch("/api/orders", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          items: items.map((item) => ({
-            product: item._id,
-            quantity: item.quantity,
-          })),
-          shippingAddress: {
-            fullName: formData.fullName.trim(),
-            phone: formData.phone.trim(),
-            address: formData.address.trim(),
-            city: formData.city.trim(),
-          },
-          paymentMethod: formData.paymentMethod,
-        }),
-      });
-
-      const result = await response.json();
-
-      if (!result.success) {
-        toast.error(result.message || "Order creation failed");
-        setLoading(false);
-        return;
-      }
-
-      const order = result.data;
-      toast.success("Order created!");
-
-      // Trigger payment gateway
-      const checkoutResponse = await fetch("/api/checkout", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          orderId: order._id,
-          paymentMethod: formData.paymentMethod,
-          totalAmount: order.totalAmount,
-        }),
-      });
-
-      const checkoutData = await checkoutResponse.json();
-
-      if (!checkoutData.success) {
-        toast.error(checkoutData.message || "Payment initiation failed");
-        setLoading(false);
-        return;
-      }
-
-      // Redirect to payment gateway
-      if (formData.paymentMethod === "sslcommerz") {
-        window.location.href = checkoutData.data.redirectUrl;
-      } else if (formData.paymentMethod === "stripe") {
-        window.location.href = checkoutData.data.checkoutUrl;
-      }
-
-      // Clear cart after successful submission
-      clearCart();
-    } catch (error) {
-      toast.error(error.message || "An error occurred");
-      setLoading(false);
-    }
-  };
-
-  const totalPrice = getTotalPrice();
-
   return (
-    <div className="mx-auto max-w-6xl px-4 py-10">
-      <h1 className="mb-8 text-3xl font-bold">Checkout</h1>
+    <div className="bg-primary min-h-screen">
+      <div className="max-w-7xl mx-auto px-4 py-6">
+        <h1 className="text-2xl font-bold text-white mb-6">Checkout</h1>
 
-      <div className="grid gap-8 md:grid-cols-2">
-        {/* Left: Form */}
-        <div>
-          <form onSubmit={handleSubmit} className="space-y-4 bg-gray-50 p-6 rounded">
-            <h2 className="text-xl font-semibold mb-4">Shipping Address</h2>
-
-            <div>
-              <label className="block text-sm font-medium mb-2">Full Name</label>
-              <input
-                type="text"
-                name="fullName"
-                value={formData.fullName}
-                onChange={handleChange}
-                placeholder="Enter your full name"
-                className="w-full px-4 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-primary"
-                required
-              />
+        <div className="grid lg:grid-cols-3 gap-6 items-start">
+          <form onSubmit={placeOrder} className="lg:col-span-2 space-y-4">
+            <div className="bg-primary-light border border-white/10 rounded-xl p-5 space-y-4">
+              <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                <span className="w-1 h-5 bg-accent rounded-full" />
+                Shipping Address
+              </h2>
+              <input className={inputCls} placeholder="Full name" value={form.fullName} onChange={set("fullName")} />
+              <input className={inputCls} placeholder="Phone number (01XXXXXXXXX)" value={form.phone} onChange={set("phone")} />
+              <input className={inputCls} placeholder="Address (house, road, area)" value={form.address} onChange={set("address")} />
+              <input className={inputCls} placeholder="City" value={form.city} onChange={set("city")} />
             </div>
 
-            <div>
-              <label className="block text-sm font-medium mb-2">Phone Number</label>
-              <input
-                type="tel"
-                name="phone"
-                value={formData.phone}
-                onChange={handleChange}
-                placeholder="Enter your phone (e.g., 01XXXXXXXXX)"
-                className="w-full px-4 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-primary"
-                required
-              />
+            <div className="bg-primary-light border border-white/10 rounded-xl p-5">
+              <h2 className="text-lg font-bold text-white flex items-center gap-2 mb-3">
+                <span className="w-1 h-5 bg-accent rounded-full" />
+                Payment Method
+              </h2>
+              <div className="flex items-center gap-3 border border-accent/50 bg-accent/10 rounded-md px-4 py-3">
+                <span className="w-4 h-4 rounded-full border-4 border-accent" />
+                <div>
+                  <p className="text-sm font-bold text-white">SSLCommerz (recommended)</p>
+                  <p className="text-xs text-zinc-400">Pay with bKash, Nagad, VISA, Mastercard or banking</p>
+                </div>
+              </div>
             </div>
 
-            <div>
-              <label className="block text-sm font-medium mb-2">Address</label>
-              <input
-                type="text"
-                name="address"
-                value={formData.address}
-                onChange={handleChange}
-                placeholder="Enter your street address"
-                className="w-full px-4 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-primary"
-                required
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium mb-2">City</label>
-              <input
-                type="text"
-                name="city"
-                value={formData.city}
-                onChange={handleChange}
-                placeholder="Enter your city"
-                className="w-full px-4 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-primary"
-                required
-              />
-            </div>
-
-            <h2 className="text-xl font-semibold mt-6 mb-4">Payment Method</h2>
-
-            <div className="space-y-3">
-              <label className="flex items-center p-3 border rounded cursor-pointer hover:bg-gray-100">
-                <input
-                  type="radio"
-                  name="paymentMethod"
-                  value="sslcommerz"
-                  checked={formData.paymentMethod === "sslcommerz"}
-                  onChange={handleChange}
-                  className="mr-3"
-                />
-                <span>SSLCommerz (Bangladesh)</span>
-              </label>
-
-              <label className="flex items-center p-3 border rounded cursor-pointer hover:bg-gray-100">
-                <input
-                  type="radio"
-                  name="paymentMethod"
-                  value="stripe"
-                  checked={formData.paymentMethod === "stripe"}
-                  onChange={handleChange}
-                  className="mr-3"
-                />
-                <span>Stripe</span>
-              </label>
-            </div>
-
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full rounded bg-accent px-6 py-3 text-white font-semibold hover:bg-accent-dark disabled:opacity-50 disabled:cursor-not-allowed mt-6"
-            >
-              {loading ? "Processing..." : "Place Order"}
-            </button>
+            {error && (
+              <p className="text-sm font-medium text-red-400 bg-red-500/10 border border-red-500/30 rounded-md px-4 py-3">
+                {error}
+              </p>
+            )}
           </form>
-        </div>
 
-        {/* Right: Order Summary */}
-        <div>
-          <div className="sticky top-4 bg-gray-50 p-6 rounded">
-            <h2 className="text-xl font-semibold mb-4">Order Summary</h2>
-
-            {/* Cart Items */}
-            <div className="space-y-3 mb-4 max-h-96 overflow-y-auto">
-              {items.map((item) => (
-                <div
-                  key={item._id}
-                  className="flex justify-between items-center pb-3 border-b"
-                >
-                  <div>
-                    <p className="font-medium">{item.name}</p>
-                    <p className="text-sm text-gray-600">
-                      Qty: {item.quantity} × {formatCurrency(item.price)}
-                    </p>
-                  </div>
-                  <p className="font-semibold">
-                    {formatCurrency(item.price * item.quantity)}
-                  </p>
+          <div className="bg-primary-light border border-white/10 rounded-xl p-5 space-y-3 lg:sticky lg:top-24">
+            <h2 className="text-lg font-bold text-white">Order Summary</h2>
+            <div className="space-y-2 max-h-56 overflow-y-auto no-scrollbar">
+              {items.map((i) => (
+                <div key={i._id} className="flex justify-between text-sm text-zinc-300">
+                  <span className="line-clamp-1">
+                    {i.name} <span className="text-zinc-500">× {i.quantity}</span>
+                  </span>
+                  <span>{formatCurrency(getEffectivePrice(i) * i.quantity)}</span>
                 </div>
               ))}
             </div>
-
-            {/* Totals */}
-            <div className="border-t pt-4 space-y-2">
-              <div className="flex justify-between">
-                <span>Subtotal:</span>
-                <span>{formatCurrency(totalPrice)}</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Shipping:</span>
-                <span>Free</span>
-              </div>
-              <div className="flex justify-between text-lg font-bold border-t pt-2 mt-2">
-                <span>Total:</span>
-                <span>{formatCurrency(totalPrice)}</span>
-              </div>
+            <div className="flex justify-between text-sm text-zinc-300">
+              <span>Delivery</span>
+              <span className="text-green-400 font-bold">Free</span>
             </div>
-
-            {/* Continue Shopping Link */}
+            <div className="border-t border-white/10 pt-3 flex justify-between text-white font-bold">
+              <span>Total</span>
+              <span className="text-accent text-lg">{formatCurrency(total)}</span>
+            </div>
             <button
-              onClick={() => router.push("/products")}
-              className="w-full mt-4 text-primary hover:underline text-sm"
+              onClick={placeOrder}
+              disabled={placing}
+              className="w-full bg-accent hover:bg-accent/80 text-primary font-bold py-3 rounded-md transition-colors disabled:opacity-50"
             >
-              ← Continue Shopping
+              {placing ? "Redirecting to payment..." : "Place Order & Pay"}
             </button>
+            <p className="text-[11px] text-zinc-500 text-center">
+              You will be redirected to SSLCommerz secure payment page.
+            </p>
           </div>
         </div>
       </div>

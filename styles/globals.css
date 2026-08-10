@@ -1,13 +1,41 @@
+/* styles/globals.css */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  --font-display: "Inter", sans-serif;
-  --font-body: "Inter", sans-serif;
+@layer base {
+  html {
+    @apply scroll-smooth;
+  }
+  body {
+    @apply bg-primary text-zinc-100 antialiased;
+  }
+  ::selection {
+    @apply bg-accent text-primary;
+  }
 }
 
-/*
-  TODO: এখানে তোমার global custom styles বা
-  অন্য AI থেকে পাওয়া CSS snippet যোগ করতে পারো।
-*/
+/* dark premium scrollbar */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #131921;
+}
+::-webkit-scrollbar-thumb {
+  background: #232f3e;
+  border-radius: 8px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #ff9900;
+}
+
+/* hide scrollbar for horizontal snap rows */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
