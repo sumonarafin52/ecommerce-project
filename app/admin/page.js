@@ -112,7 +112,7 @@ export default function AdminPage() {
               <table className="w-full text-sm text-left">
                 <thead>
                   <tr className="text-zinc-400 border-b border-white/10">
-                    <th className="py-2 pr-4 font-medium">Order</th>
+                    <th className="py-2 pr-4 font-medium">Orders</th>
                     <th className="py-2 pr-4 font-medium">Customer</th>
                     <th className="py-2 pr-4 font-medium">Date</th>
                     <th className="py-2 pr-4 font-medium">Total</th>
