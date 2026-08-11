@@ -16,8 +16,10 @@ export default function CheckoutPage() {
   const clearCart = useCartStore((s) => s.clearCart);
 
   const [form, setForm] = useState({ fullName: "", phone: "", address: "", city: "" });
+  const [method, setMethod] = useState("sslcommerz");
   const [error, setError] = useState("");
   const [placing, setPlacing] = useState(false);
+  const [placed, setPlaced] = useState(false);
 
   const total = items.reduce((sum, i) => sum + getEffectivePrice(i) * i.quantity, 0);
 
@@ -32,22 +34,33 @@ export default function CheckoutPage() {
     }
     setPlacing(true);
     try {
+      // 1) order create/update (server draft logic handle korbe)
       const orderRes = await fetch("/api/orders", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           items: items.map((i) => ({ product: i._id, quantity: i.quantity })),
           shippingAddress: form,
-          paymentMethod: "sslcommerz",
+          paymentMethod: method,
         }),
       }).then((r) => r.json());
 
       if (!orderRes.success) throw new Error(orderRes.message);
+      const orderId = orderRes.data._id;
 
+      // 2) COD hole payment redirect lagbe na
+      if (method === "cod") {
+        clearCart();
+        setPlaced(true);
+        setPlacing(false);
+        return;
+      }
+
+      // 3) SSLCommerz payment initiate
       const payRes = await fetch("/api/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ orderId: orderRes.data._id }),
+        body: JSON.stringify({ orderId }),
       }).then((r) => r.json());
 
       if (!payRes.success || !payRes.data.url) {
@@ -85,6 +98,39 @@ export default function CheckoutPage() {
     );
   }
 
+  // COD success screen
+  if (placed) {
+    return (
+      <div className="bg-primary min-h-screen flex items-center justify-center px-4">
+        <div className="max-w-md w-full bg-primary-light border border-white/10 rounded-xl p-8 text-center space-y-4">
+          <div className="w-16 h-16 mx-auto rounded-full bg-green-500/15 border border-green-500/40 flex items-center justify-center">
+            <svg className="w-8 h-8 text-green-400" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+            </svg>
+          </div>
+          <h1 className="text-2xl font-extrabold text-white">Order Placed Successfully!</h1>
+          <p className="text-sm text-zinc-400">
+            Dhonnobad! Apnar order ti confirm hoyeche. Product receive korar somoy payment korun (Cash on Delivery).
+          </p>
+          <div className="flex gap-3 pt-2">
+            <Link
+              href="/profile"
+              className="flex-1 bg-accent hover:bg-accent/80 text-primary font-bold py-3 rounded-md transition-colors text-sm"
+            >
+              View My Orders
+            </Link>
+            <Link
+              href="/products"
+              className="flex-1 border border-white/15 text-zinc-300 hover:border-accent hover:text-accent font-bold py-3 rounded-md transition-colors text-sm"
+            >
+              Continue Shopping
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (items.length === 0) {
     return (
       <div className="bg-primary min-h-screen flex flex-col items-center justify-center gap-4 text-center px-4">
@@ -117,18 +163,39 @@ export default function CheckoutPage() {
               <input className={inputCls} placeholder="City" value={form.city} onChange={set("city")} />
             </div>
 
-            <div className="bg-primary-light border border-white/10 rounded-xl p-5">
-              <h2 className="text-lg font-bold text-white flex items-center gap-2 mb-3">
+            <div className="bg-primary-light border border-white/10 rounded-xl p-5 space-y-3">
+              <h2 className="text-lg font-bold text-white flex items-center gap-2">
                 <span className="w-1 h-5 bg-accent rounded-full" />
                 Payment Method
               </h2>
-              <div className="flex items-center gap-3 border border-accent/50 bg-accent/10 rounded-md px-4 py-3">
-                <span className="w-4 h-4 rounded-full border-4 border-accent" />
+
+              <button
+                type="button"
+                onClick={() => setMethod("sslcommerz")}
+                className={`w-full flex items-center gap-3 rounded-md px-4 py-3 border transition-colors text-left ${
+                  method === "sslcommerz" ? "border-accent bg-accent/10" : "border-white/10 hover:border-white/30"
+                }`}
+              >
+                <span className={`w-4 h-4 rounded-full border-4 ${method === "sslcommerz" ? "border-accent" : "border-zinc-500"}`} />
                 <div>
                   <p className="text-sm font-bold text-white">SSLCommerz (recommended)</p>
-                  <p className="text-xs text-zinc-400">Pay with bKash, Nagad, VISA, Mastercard or banking</p>
+                  <p className="text-xs text-zinc-400">Pay now with bKash, Nagad, VISA, Mastercard or banking</p>
                 </div>
-              </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setMethod("cod")}
+                className={`w-full flex items-center gap-3 rounded-md px-4 py-3 border transition-colors text-left ${
+                  method === "cod" ? "border-accent bg-accent/10" : "border-white/10 hover:border-white/30"
+                }`}
+              >
+                <span className={`w-4 h-4 rounded-full border-4 ${method === "cod" ? "border-accent" : "border-zinc-500"}`} />
+                <div>
+                  <p className="text-sm font-bold text-white">Cash on Delivery</p>
+                  <p className="text-xs text-zinc-400">Product receive korar por payment korun</p>
+                </div>
+              </button>
             </div>
 
             {error && (
@@ -163,10 +230,16 @@ export default function CheckoutPage() {
               disabled={placing}
               className="w-full bg-accent hover:bg-accent/80 text-primary font-bold py-3 rounded-md transition-colors disabled:opacity-50"
             >
-              {placing ? "Redirecting to payment..." : "Place Order & Pay"}
+              {placing
+                ? "Placing order..."
+                : method === "cod"
+                ? "Place Order (COD)"
+                : "Place Order & Pay"}
             </button>
             <p className="text-[11px] text-zinc-500 text-center">
-              You will be redirected to SSLCommerz secure payment page.
+              {method === "cod"
+                ? "Product receive korar somoy cash payment korben."
+                : "You will be redirected to SSLCommerz secure payment page."}
             </p>
           </div>
         </div>

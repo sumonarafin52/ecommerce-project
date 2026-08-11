@@ -1,16 +1,19 @@
 // app/api/checkout/route.js
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
-import SslCommerzPayment from "sslcommerz-lts";
+import { createRequire } from "module";
 import connectDB from "@/lib/db";
 import Order from "@/models/Order";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 
+const require = createRequire(import.meta.url);
+const SslCommerzPayment = require("sslcommerz-lts");
+
 const storeId = process.env.SSLCOMMERZ_STORE_ID;
-// support both SSLCOMMERZ_STORE_PASS and SSLCOMMERZ_STORE_PASSWORD
 const storePass = process.env.SSLCOMMERZ_STORE_PASS || process.env.SSLCOMMERZ_STORE_PASSWORD;
-// false = sandbox (test), true = live (real money)
 const isLive = process.env.SSLCOMMERZ_IS_LIVE === "true";
+
+export const runtime = "nodejs";
 
 export async function POST(request) {
   try {
@@ -35,13 +38,11 @@ export async function POST(request) {
       if (order) {
         if (status === "VALID" || status === "VALIDATED") order.paymentStatus = "paid";
         else if (status === "FAILED") order.paymentStatus = "failed";
-        // CANCELLED stays pending so the user can retry
         await order.save();
       }
       return NextResponse.redirect(`${origin}/profile?payment=${status}`);
     }
 
-    // otherwise: initiate payment for an existing order
     const session = await getServerSession(authOptions);
     if (!session?.user) {
       return NextResponse.json({ success: false, message: "Login required" }, { status: 401 });
