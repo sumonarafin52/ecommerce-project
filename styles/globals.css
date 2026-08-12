@@ -79,3 +79,60 @@ body.admin-theme .admin-input:focus {
   background: white;
   outline: none;
 }
+/* ===== ADMIN PAGES GLOBAL LIGHT OVERRIDE ===== */
+body.admin-theme .bg-primary { background-color: #f1f5f9 !important; }
+body.admin-theme .bg-primary-light { background-color: #ffffff !important; }
+body.admin-theme .bg-black\/20,
+body.admin-theme .bg-black\/30,
+body.admin-theme .bg-black\/40 { background-color: #f8fafc !important; }
+body.admin-theme .bg-white\/5,
+body.admin-theme .bg-white\/10 { background-color: #f1f5f9 !important; }
+body.admin-theme .hover\:bg-white\/5:hover,
+body.admin-theme .hover\:bg-white\/10:hover { background-color: #e2e8f0 !important; }
+
+body.admin-theme .text-white { color: #0f172a !important; }
+body.admin-theme .hover\:text-white:hover { color: #0f172a !important; }
+body.admin-theme .text-zinc-200,
+body.admin-theme .text-zinc-300 { color: #334155 !important; }
+body.admin-theme .text-zinc-400 { color: #64748b !important; }
+body.admin-theme .text-zinc-500,
+body.admin-theme .text-zinc-600 { color: #94a3b8 !important; }
+
+body.admin-theme .border-white\/5,
+body.admin-theme .border-white\/10,
+body.admin-theme .border-white\/15,
+body.admin-theme .border-white\/20 { border-color: #e2e8f0 !important; }
+body.admin-theme .border-white\/30,
+body.admin-theme .border-white\/40,
+body.admin-theme .hover\:border-white\/30:hover,
+body.admin-theme .hover\:border-white\/40:hover { border-color: #cbd5e1 !important; }
+
+body.admin-theme .placeholder-zinc-500::placeholder { color: #94a3b8 !important; }
+
+/* gradient save-bar light */
+body.admin-theme .from-primary { --tw-gradient-from: #f8fafc !important; }
+body.admin-theme .via-primary { --tw-gradient-via: #f8fafc !important; }
+body.admin-theme .to-primary\/95 { --tw-gradient-to: rgb(248 250 252 / 0.95) !important; }
+body.admin-theme .ring-offset-primary-light { --tw-ring-offset-color: #ffffff !important; }
+
+/* colored box er bhitore text-white WHITE thakbe (icon/badge) */
+body.admin-theme [class*="bg-emerald"] > .text-white,
+body.admin-theme [class*="bg-rose"] > .text-white,
+body.admin-theme [class*="bg-blue"] > .text-white,
+body.admin-theme [class*="bg-violet"] > .text-white,
+body.admin-theme [class*="bg-sky"] > .text-white,
+body.admin-theme [class*="bg-amber"] > .text-white,
+body.admin-theme [class*="bg-pink"] > .text-white,
+body.admin-theme [class*="bg-cyan"] > .text-white,
+body.admin-theme [class*="bg-zinc-500"] > .text-white,
+body.admin-theme [class*="bg-accent"] > .text-white,
+body.admin-theme [class*="from-accent"] > .text-white,
+body.admin-theme [class*="from-orange"] > .text-white,
+body.admin-theme [class*="from-emerald"] > .text-white,
+body.admin-theme [class*="from-cyan"] > .text-white,
+body.admin-theme [class*="from-rose"] > .text-white,
+body.admin-theme [class*="from-purple"] > .text-white,
+body.admin-theme [class*="from-indigo"] > .text-white,
+body.admin-theme [class*="from-blue"] > .text-white,
+body.admin-theme [class*="from-amber"] > .text-white,
+body.admin-theme [class*="from-pink"] > .text-white { color: #ffffff !important; }
