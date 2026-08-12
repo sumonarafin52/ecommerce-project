@@ -31,7 +31,7 @@ export default function NewProductPage() {
 
   return (
     <div className="bg-primary min-h-screen">
-      <div className="max-w-4xl mx-auto px-4 py-6 space-y-6">
+      <div className="max-w-[1700px] mx-auto px-4 lg:px-8 py-6 space-y-6">
         <div>
           <Link href="/admin/products" className="text-xs text-zinc-400 hover:text-accent transition-colors">
             ← Products

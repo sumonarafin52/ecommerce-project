@@ -3,6 +3,7 @@
 
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { formatCurrency } from "@/lib/utils";
 
 const inputCls =
   "w-full bg-white/5 border border-white/15 rounded-lg px-3.5 py-2.5 text-sm text-white placeholder-zinc-500 outline-none focus:border-accent focus:bg-white/[0.07] transition-all";
@@ -38,12 +39,12 @@ const cartesian = (options, existing) => {
   });
 };
 
-// ===== SECTION HEADER (colorful, modern) =====
-const Section = ({ icon, title, accent, children, right }) => (
-  <section className={`relative bg-gradient-to-br from-${accent}/5 via-primary-light to-primary-light border border-white/10 rounded-2xl p-6 space-y-4 shadow-sm`}>
+// ===== SECTION (literal Tailwind classes — JIT safe) =====
+const Section = ({ icon, title, iconBg, tint, children, right }) => (
+  <section className={`relative bg-gradient-to-br ${tint} via-primary-light to-primary-light border border-white/10 rounded-2xl p-6 space-y-4`}>
     <div className="flex items-center justify-between">
-      <h2 className={`text-base font-extrabold text-white flex items-center gap-2.5`}>
-        <span className={`w-8 h-8 rounded-lg bg-${accent} flex items-center justify-center`}>
+      <h2 className="text-base font-extrabold text-white flex items-center gap-2.5">
+        <span className={`w-8 h-8 rounded-lg ${iconBg} flex items-center justify-center shadow-lg shrink-0`}>
           <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" d={icon} />
           </svg>
@@ -55,6 +56,13 @@ const Section = ({ icon, title, accent, children, right }) => (
     {children}
   </section>
 );
+
+const statusOptions = [
+  { key: "public", label: "Public", desc: "Visible on store", iconBg: "bg-emerald-500", border: "border-emerald-400", bg: "bg-emerald-500/10", icon: "M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" },
+  { key: "unlisted", label: "Unlisted", desc: "Direct URL only", iconBg: "bg-zinc-500", border: "border-zinc-400", bg: "bg-zinc-500/10", icon: "M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" },
+  { key: "draft", label: "Draft", desc: "Still preparing", iconBg: "bg-blue-500", border: "border-blue-400", bg: "bg-blue-500/10", icon: "M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" },
+  { key: "private", label: "Private", desc: "Hidden from all", iconBg: "bg-rose-500", border: "border-rose-400", bg: "bg-rose-500/10", icon: "M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" },
+];
 
 export default function ProductForm({ initial }) {
   const router = useRouter();
@@ -85,7 +93,6 @@ export default function ProductForm({ initial }) {
 
   const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
 
-  // ===== TAGS =====
   const addTag = () => {
     const t = tagInput.trim();
     if (!t) return;
@@ -93,34 +100,22 @@ export default function ProductForm({ initial }) {
     setTagInput("");
   };
 
-  // ===== IMAGE UPLOAD (robust — handles all common API response formats) =====
   const uploadFiles = async (files) => {
     const list = Array.from(files).filter((f) => f.type.startsWith("image/"));
     if (!list.length) return;
     setUploading(true);
     setUploadProgress(0);
+    setError("");
     try {
       for (let i = 0; i < list.length; i++) {
         const fd = new FormData();
         fd.append("file", list[i]);
         const res = await fetch("/api/upload", { method: "POST", body: fd }).then((r) => r.json());
-        
-        // Robust URL extraction — handles all common response shapes
         const url =
-          res.url ||
-          res.secure_url ||
-          res.imageUrl ||
-          res.data?.url ||
-          res.data?.secure_url ||
-          res.data?.imageUrl ||
-          res.result?.url ||
-          res.result?.secure_url ||
-          (typeof res === "string" ? res : null);
-
-        if (!url) {
-          console.error("Upload response:", res);
-          throw new Error(res.message || "Upload failed — check console for response");
-        }
+          res.url || res.secure_url || res.imageUrl ||
+          res.data?.url || res.data?.secure_url || res.data?.imageUrl ||
+          res.result?.url || res.result?.secure_url;
+        if (!url) throw new Error(res.message || "Image upload failed");
         setForm((f) => ({ ...f, images: [...f.images, url] }));
         setUploadProgress(Math.round(((i + 1) / list.length) * 100));
       }
@@ -142,7 +137,6 @@ export default function ProductForm({ initial }) {
 
   const setPrimary = (i) => moveImage(i, 0);
 
-  // ===== VARIANTS =====
   const addVariantType = () => {
     const name = newVariant.trim();
     if (!name) return;
@@ -186,7 +180,6 @@ export default function ProductForm({ initial }) {
       combinations: f.combinations.map((c, x) => (x === i ? { ...c, [key]: val } : c)),
     }));
 
-  // ===== SAVE =====
   const save = async () => {
     setError("");
     if (!form.name.trim()) return setError("Product title is required");
@@ -217,14 +210,6 @@ export default function ProductForm({ initial }) {
     setSaving(false);
   };
 
-  // ===== STATUS CONFIG =====
-  const statusOptions = [
-    { key: "public", label: "Public", desc: "Visible on store", color: "emerald", icon: "M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" },
-    { key: "unlisted", label: "Unlisted", desc: "Direct URL only", color: "zinc", icon: "M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" },
-    { key: "draft", label: "Draft", desc: "Still preparing", color: "blue", icon: "M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" },
-    { key: "private", label: "Private", desc: "Hidden from all", color: "rose", icon: "M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" },
-  ];
-
   return (
     <div className="space-y-6">
       {error && (
@@ -236,56 +221,34 @@ export default function ProductForm({ initial }) {
         </div>
       )}
 
-      <div className="grid lg:grid-cols-[1fr_360px] gap-6 items-start">
-        {/* ===== LEFT COLUMN: main content ===== */}
-        <div className="space-y-6">
-          {/* ===== BASIC INFO ===== */}
-          <Section icon="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" title="Basic Information" accent="bg-accent">
+      <div className="grid lg:grid-cols-[1fr_340px] xl:grid-cols-[1fr_400px] gap-6 items-start">
+        {/* ===== LEFT: main content ===== */}
+        <div className="space-y-6 min-w-0">
+          <Section icon="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" title="Basic Information" iconBg="bg-accent" tint="from-accent/10">
             <div>
               <label className={labelCls}>Product Title <span className="text-rose-400">*</span></label>
-              <input
-                className={`${inputCls} !text-lg !py-3 !font-bold`}
-                value={form.name}
-                onChange={set("name")}
-                placeholder="e.g. Wireless Gaming Mouse Pro"
-              />
+              <input className={`${inputCls} !text-lg !py-3 !font-bold`} value={form.name} onChange={set("name")} placeholder="e.g. Wireless Gaming Mouse Pro" />
               <p className="text-[11px] text-zinc-500 mt-1">A clear, descriptive title helps customers find your product</p>
             </div>
             <div>
               <label className={labelCls}>Short Description</label>
-              <textarea
-                className={`${inputCls} resize-none`}
-                rows={2}
-                value={form.shortDescription}
-                onChange={set("shortDescription")}
-                placeholder="One-line summary for product cards (optional)"
-                maxLength={160}
-              />
+              <textarea className={`${inputCls} resize-none`} rows={2} maxLength={160} value={form.shortDescription} onChange={set("shortDescription")} placeholder="One-line summary for product cards (optional)" />
               <p className="text-[11px] text-zinc-500 mt-1 text-right">{(form.shortDescription || "").length}/160</p>
             </div>
             <div>
               <label className={labelCls}>Full Description</label>
-              <textarea
-                className={`${inputCls} resize-none`}
-                rows={8}
-                value={form.description}
-                onChange={set("description")}
-                placeholder="Detailed product information, features, specifications..."
-              />
+              <textarea className={`${inputCls} resize-none`} rows={8} value={form.description} onChange={set("description")} placeholder="Detailed product information, features, specifications..." />
             </div>
           </Section>
 
-          {/* ===== MEDIA ===== */}
-          <Section icon="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" title="Media" accent="bg-fuchsia-500">
+          <Section icon="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" title="Media" iconBg="bg-fuchsia-500" tint="from-fuchsia-500/10">
             <div
               onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
               onDragLeave={() => setDragOver(false)}
               onDrop={(e) => { e.preventDefault(); setDragOver(false); uploadFiles(e.dataTransfer.files); }}
               onClick={() => fileRef.current?.click()}
               className={`relative border-2 border-dashed rounded-xl p-10 text-center cursor-pointer transition-all overflow-hidden ${
-                dragOver
-                  ? "border-accent bg-accent/10 scale-[1.01]"
-                  : "border-white/20 hover:border-fuchsia-400/60 hover:bg-fuchsia-500/5"
+                dragOver ? "border-accent bg-accent/10 scale-[1.01]" : "border-white/20 hover:border-fuchsia-400/60 hover:bg-fuchsia-500/5"
               }`}
             >
               {uploading && (
@@ -304,26 +267,13 @@ export default function ProductForm({ initial }) {
                   <p className="text-xs text-zinc-400 mt-1">or <span className="text-accent underline">click to browse</span> • PNG, JPG, WebP</p>
                 </div>
               </div>
-              <input
-                ref={fileRef}
-                type="file"
-                accept="image/*"
-                multiple
-                className="hidden"
-                onChange={(e) => { uploadFiles(e.target.files); e.target.value = ""; }}
-              />
+              <input ref={fileRef} type="file" accept="image/*" multiple className="hidden" onChange={(e) => { uploadFiles(e.target.files); e.target.value = ""; }} />
             </div>
 
             {form.images.length > 0 && (
               <div>
-                <p className="text-[11px] text-zinc-400 mb-2 flex items-center gap-1.5">
-                  <svg className="w-3.5 h-3.5 text-fuchsia-400" fill="currentColor" viewBox="0 0 20 20">
-                    <path d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z"/>
-                    <path fillRule="evenodd" d="M4 5a2 2 0 012-2 3 3 0 003 3h2a3 3 0 003-3 2 2 0 012 2v11a2 2 0 01-2 2H6a2 2 0 01-2-2V5z" clipRule="evenodd"/>
-                  </svg>
-                  Drag to reorder • First image = main photo
-                </p>
-                <div className="grid grid-cols-3 sm:grid-cols-4 gap-3">
+                <p className="text-[11px] text-zinc-400 mb-2">Drag to reorder • First image = main photo</p>
+                <div className="grid grid-cols-3 sm:grid-cols-4 xl:grid-cols-5 gap-3">
                   {form.images.map((img, i) => (
                     <div
                       key={i}
@@ -343,19 +293,11 @@ export default function ProductForm({ initial }) {
                       )}
                       <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 via-black/70 to-transparent p-2 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col gap-1">
                         {i !== 0 && (
-                          <button
-                            type="button"
-                            onClick={(e) => { e.stopPropagation(); setPrimary(i); }}
-                            className="text-[10px] font-bold text-accent hover:bg-accent/20 rounded px-1.5 py-1 transition-colors"
-                          >
+                          <button type="button" onClick={(e) => { e.stopPropagation(); setPrimary(i); }} className="text-[10px] font-bold text-accent hover:bg-accent/20 rounded px-1.5 py-1 transition-colors">
                             ★ Set as main
                           </button>
                         )}
-                        <button
-                          type="button"
-                          onClick={(e) => { e.stopPropagation(); setForm((f) => ({ ...f, images: f.images.filter((_, x) => x !== i) })); }}
-                          className="text-[10px] font-bold text-rose-400 hover:bg-rose-500/20 rounded px-1.5 py-1 transition-colors"
-                        >
+                        <button type="button" onClick={(e) => { e.stopPropagation(); setForm((f) => ({ ...f, images: f.images.filter((_, x) => x !== i) })); }} className="text-[10px] font-bold text-rose-400 hover:bg-rose-500/20 rounded px-1.5 py-1 transition-colors">
                           ✕ Remove
                         </button>
                       </div>
@@ -366,8 +308,7 @@ export default function ProductForm({ initial }) {
             )}
           </Section>
 
-          {/* ===== PRICING ===== */}
-          <Section icon="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" title="Pricing" accent="bg-emerald-500">
+          <Section icon="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" title="Pricing" iconBg="bg-emerald-500" tint="from-emerald-500/10">
             <div className="grid sm:grid-cols-2 gap-4">
               <div>
                 <label className={labelCls}>Compare at price (old) <span className="text-rose-400">*</span></label>
@@ -387,7 +328,7 @@ export default function ProductForm({ initial }) {
               </div>
             </div>
             {form.price && form.discountPrice && Number(form.discountPrice) < Number(form.price) && (
-              <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-lg px-4 py-3 flex items-center gap-3">
+              <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-lg px-4 py-3">
                 <span className="text-xs font-bold text-emerald-400">
                   🎯 Customers save {Math.round(((Number(form.price) - Number(form.discountPrice)) / Number(form.price)) * 100)}% ({formatCurrency(Number(form.price) - Number(form.discountPrice))})
                 </span>
@@ -395,29 +336,16 @@ export default function ProductForm({ initial }) {
             )}
           </Section>
 
-          {/* ===== VARIANTS ===== */}
-          <Section icon="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" title="Variants" accent="bg-violet-500"
-            right={
-              form.combinations.length > 0 && (
-                <span className="text-[11px] font-bold bg-violet-500/15 text-violet-300 px-2.5 py-1 rounded-full border border-violet-500/30">
-                  {form.combinations.length} combinations
-                </span>
-              )
-            }
+          <Section icon="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" title="Variants" iconBg="bg-violet-500" tint="from-violet-500/10"
+            right={form.combinations.length > 0 && (
+              <span className="text-[11px] font-bold bg-violet-500/15 text-violet-300 px-2.5 py-1 rounded-full border border-violet-500/30">
+                {form.combinations.length} combinations
+              </span>
+            )}
           >
             <div className="flex gap-2">
-              <input
-                className={inputCls}
-                value={newVariant}
-                onChange={(e) => setNewVariant(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addVariantType(); } }}
-                placeholder="Add variant type: Size, Color, Material..."
-              />
-              <button
-                type="button"
-                onClick={addVariantType}
-                className="bg-gradient-to-r from-accent to-orange-500 hover:from-accent/90 hover:to-orange-500/90 text-primary text-xs font-extrabold px-4 rounded-lg transition-all shadow-glow whitespace-nowrap"
-              >
+              <input className={inputCls} value={newVariant} onChange={(e) => setNewVariant(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addVariantType(); } }} placeholder="Add variant type: Size, Color, Material..." />
+              <button type="button" onClick={addVariantType} className="bg-gradient-to-r from-accent to-orange-500 hover:from-accent/90 hover:to-orange-500/90 text-primary text-xs font-extrabold px-4 rounded-lg transition-all shadow-glow whitespace-nowrap">
                 + Add Type
               </button>
             </div>
@@ -433,15 +361,10 @@ export default function ProductForm({ initial }) {
                         </span>
                         {opt.name}
                       </p>
-                      <button
-                        type="button"
-                        onClick={() => removeVariantType(opt.name)}
-                        className="text-[11px] text-rose-400 hover:text-rose-300 font-bold hover:bg-rose-500/10 px-2 py-1 rounded transition-colors"
-                      >
+                      <button type="button" onClick={() => removeVariantType(opt.name)} className="text-[11px] text-rose-400 hover:text-rose-300 font-bold hover:bg-rose-500/10 px-2 py-1 rounded transition-colors">
                         Remove type
                       </button>
                     </div>
-
                     <div className="flex flex-wrap gap-1.5">
                       {opt.values.map((v) => (
                         <span key={v} className="flex items-center gap-1.5 text-[11px] font-bold bg-white/10 text-white px-2.5 py-1 rounded-full border border-white/10">
@@ -449,20 +372,9 @@ export default function ProductForm({ initial }) {
                           <button type="button" onClick={() => removeVariantValue(opt.name, v)} className="hover:text-rose-400">✕</button>
                         </span>
                       ))}
-                      {opt.values.length === 0 && (
-                        <span className="text-[11px] text-zinc-500 italic">No values yet — add some below</span>
-                      )}
+                      {opt.values.length === 0 && <span className="text-[11px] text-zinc-500 italic">No values yet — add some below</span>}
                     </div>
-
-                    <div className="flex gap-2">
-                      <input
-                        className={inputCls}
-                        value={valueInputs[opt.name] || ""}
-                        onChange={(e) => setValueInputs((s) => ({ ...s, [opt.name]: e.target.value }))}
-                        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addVariantValue(opt.name); } }}
-                        placeholder={`Add ${opt.name} value + Enter`}
-                      />
-                    </div>
+                    <input className={inputCls} value={valueInputs[opt.name] || ""} onChange={(e) => setValueInputs((s) => ({ ...s, [opt.name]: e.target.value }))} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addVariantValue(opt.name); } }} placeholder={`Add ${opt.name} value + Enter`} />
                   </div>
                 ))}
               </div>
@@ -492,32 +404,25 @@ export default function ProductForm({ initial }) {
                         <td className="p-3">
                           <label className="relative inline-flex items-center cursor-pointer">
                             <input type="checkbox" checked={c.active} onChange={(e) => updateCombo(i, "active", e.target.checked)} className="sr-only peer" />
-                            <div className="w-9 h-5 bg-zinc-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-500"></div>
+                            <div className="w-9 h-5 bg-zinc-700 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-500"></div>
                           </label>
                         </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
-                <p className="text-[11px] text-zinc-500 p-3 bg-black/10 border-t border-white/5">
-                  💡 Price of 0 = use base price
-                </p>
+                <p className="text-[11px] text-zinc-500 p-3 bg-black/10 border-t border-white/5">💡 Price of 0 = use base price</p>
               </div>
             )}
           </Section>
         </div>
 
-        {/* ===== RIGHT COLUMN: sticky sidebar (organization, status, inventory, tags) ===== */}
+        {/* ===== RIGHT: sticky sidebar ===== */}
         <div className="space-y-6 lg:sticky lg:top-4">
-          {/* ===== STATUS ===== */}
-          <Section icon="M15 12a3 3 0 11-6 0 3 3 0 016 0z M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" title="Status" accent="bg-emerald-500"
-            right={
-              form.featured && (
-                <span className="text-[10px] font-extrabold bg-gradient-to-r from-accent to-orange-500 text-primary px-2 py-1 rounded-md">
-                  ⭐ FEATURED
-                </span>
-              )
-            }
+          <Section icon="M15 12a3 3 0 11-6 0 3 3 0 016 0z" title="Status" iconBg="bg-emerald-500" tint="from-emerald-500/10"
+            right={form.featured && (
+              <span className="text-[10px] font-extrabold bg-gradient-to-r from-accent to-orange-500 text-primary px-2 py-1 rounded-md">⭐ FEATURED</span>
+            )}
           >
             <div className="grid grid-cols-2 gap-2">
               {statusOptions.map((s) => (
@@ -526,12 +431,10 @@ export default function ProductForm({ initial }) {
                   type="button"
                   onClick={() => setForm((f) => ({ ...f, status: s.key }))}
                   className={`relative p-3 rounded-xl border-2 text-left transition-all ${
-                    form.status === s.key
-                      ? `border-${s.color}-400 bg-${s.color}-500/10 shadow-glow`
-                      : "border-white/10 hover:border-white/30 bg-white/[0.02]"
+                    form.status === s.key ? `${s.border} ${s.bg} shadow-glow` : "border-white/10 hover:border-white/30 bg-white/[0.02]"
                   }`}
                 >
-                  <div className={`w-7 h-7 rounded-md bg-${s.color}-500 flex items-center justify-center mb-2`}>
+                  <div className={`w-7 h-7 rounded-md ${s.iconBg} flex items-center justify-center mb-2`}>
                     <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" d={s.icon} />
                     </svg>
@@ -541,14 +444,8 @@ export default function ProductForm({ initial }) {
                 </button>
               ))}
             </div>
-
             <label className="flex items-center gap-3 pt-2 cursor-pointer group">
-              <input
-                type="checkbox"
-                checked={form.featured}
-                onChange={(e) => setForm((f) => ({ ...f, featured: e.target.checked }))}
-                className="accent-[#f5a623] w-4 h-4"
-              />
+              <input type="checkbox" checked={form.featured} onChange={(e) => setForm((f) => ({ ...f, featured: e.target.checked }))} className="accent-[#f5a623] w-4 h-4" />
               <div>
                 <p className="text-xs font-bold text-white group-hover:text-accent transition-colors">Show on homepage</p>
                 <p className="text-[10px] text-zinc-500">Feature this product on the store front</p>
@@ -556,8 +453,7 @@ export default function ProductForm({ initial }) {
             </label>
           </Section>
 
-          {/* ===== ORGANIZATION ===== */}
-          <Section icon="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" title="Organization" accent="bg-sky-500">
+          <Section icon="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" title="Organization" iconBg="bg-sky-500" tint="from-sky-500/10">
             <div>
               <label className={labelCls}>Category <span className="text-rose-400">*</span></label>
               <input className={inputCls} value={form.category} onChange={set("category")} placeholder="e.g. Electronics" />
@@ -571,14 +467,13 @@ export default function ProductForm({ initial }) {
               <input className={inputCls} value={form.brand} onChange={set("brand")} placeholder="e.g. Logitech" />
             </div>
             <div>
-              <label className={labelCls}>SKU (Stock Keeping Unit)</label>
+              <label className={labelCls}>SKU</label>
               <input className={inputCls} value={form.sku} onChange={set("sku")} placeholder="e.g. LGT-MX-100" />
               <p className="text-[11px] text-zinc-500 mt-1">Unique identifier for inventory tracking</p>
             </div>
           </Section>
 
-          {/* ===== INVENTORY ===== */}
-          <Section icon="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" title="Inventory" accent="bg-amber-500">
+          <Section icon="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" title="Inventory" iconBg="bg-amber-500" tint="from-amber-500/10">
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className={labelCls}>Stock</label>
@@ -589,88 +484,51 @@ export default function ProductForm({ initial }) {
                 <input type="number" min="0" className={inputCls} value={form.lowStockThreshold} onChange={set("lowStockThreshold")} />
               </div>
             </div>
-            {form.stock && Number(form.stock) <= Number(form.lowStockThreshold || 5) && Number(form.stock) > 0 && (
-              <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg px-3 py-2 flex items-center gap-2">
+            {form.stock !== "" && Number(form.stock) > 0 && Number(form.stock) <= Number(form.lowStockThreshold || 5) && (
+              <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg px-3 py-2">
                 <span className="text-[11px] font-bold text-amber-400">⚠️ Low stock warning</span>
               </div>
             )}
-            {form.stock && Number(form.stock) <= 0 && (
-              <div className="bg-rose-500/10 border border-rose-500/30 rounded-lg px-3 py-2 flex items-center gap-2">
+            {form.stock !== "" && Number(form.stock) <= 0 && (
+              <div className="bg-rose-500/10 border border-rose-500/30 rounded-lg px-3 py-2">
                 <span className="text-[11px] font-bold text-rose-400">🚫 Out of stock</span>
               </div>
             )}
           </Section>
 
-          {/* ===== TAGS ===== */}
-          <Section icon="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" title="SEO & Tags" accent="bg-pink-500">
-            <div>
-              <label className={labelCls}>Tags (for search & SEO)</label>
-              <div className="flex gap-2">
-                <input
-                  className={inputCls}
-                  value={tagInput}
-                  onChange={(e) => setTagInput(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addTag(); } }}
-                  placeholder="Type & press Enter"
-                />
-                <button
-                  type="button"
-                  onClick={addTag}
-                  className="bg-pink-500 hover:bg-pink-400 text-white text-xs font-extrabold px-4 rounded-lg transition-colors"
-                >
-                  +
-                </button>
-              </div>
-              {form.tags.length > 0 && (
-                <div className="flex flex-wrap gap-1.5 mt-3">
-                  {form.tags.map((t) => (
-                    <span key={t} className="flex items-center gap-1.5 text-[11px] font-bold bg-gradient-to-r from-pink-500/20 to-accent/20 text-white px-2.5 py-1 rounded-full border border-white/10">
-                      #{t}
-                      <button type="button" onClick={() => setForm((f) => ({ ...f, tags: f.tags.filter((x) => x !== t) }))} className="hover:text-rose-400">✕</button>
-                    </span>
-                  ))}
-                </div>
-              )}
-              {form.tags.length === 0 && (
-                <p className="text-[11px] text-zinc-500 mt-2">No tags added yet</p>
-              )}
+          <Section icon="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" title="SEO & Tags" iconBg="bg-pink-500" tint="from-pink-500/10">
+            <div className="flex gap-2">
+              <input className={inputCls} value={tagInput} onChange={(e) => setTagInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addTag(); } }} placeholder="Type & press Enter" />
+              <button type="button" onClick={addTag} className="bg-pink-500 hover:bg-pink-400 text-white text-xs font-extrabold px-4 rounded-lg transition-colors">+</button>
             </div>
+            {form.tags.length > 0 ? (
+              <div className="flex flex-wrap gap-1.5">
+                {form.tags.map((t) => (
+                  <span key={t} className="flex items-center gap-1.5 text-[11px] font-bold bg-gradient-to-r from-pink-500/20 to-accent/20 text-white px-2.5 py-1 rounded-full border border-white/10">
+                    #{t}
+                    <button type="button" onClick={() => setForm((f) => ({ ...f, tags: f.tags.filter((x) => x !== t) }))} className="hover:text-rose-400">✕</button>
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <p className="text-[11px] text-zinc-500">No tags added yet</p>
+            )}
           </Section>
         </div>
       </div>
 
       {/* ===== STICKY SAVE BAR ===== */}
-      <div className="sticky bottom-0 -mx-4 px-4 py-4 bg-gradient-to-t from-primary via-primary to-primary/95 border-t border-white/10 backdrop-blur-sm z-20">
-        <div className="max-w-7xl mx-auto flex gap-3 items-center justify-between">
+      <div className="sticky bottom-0 py-4 bg-gradient-to-t from-primary via-primary to-primary/95 border-t border-white/10 backdrop-blur-sm z-20">
+        <div className="flex gap-3 items-center justify-between">
           <div className="text-xs text-zinc-400 hidden sm:block">
-            {initial ? (
-              <span>Editing: <span className="font-bold text-white">{initial.name}</span></span>
-            ) : (
-              <span>Creating a new product</span>
-            )}
+            {initial ? <span>Editing: <span className="font-bold text-white">{initial.name}</span></span> : <span>Creating a new product</span>}
           </div>
           <div className="flex gap-3 flex-1 sm:flex-none justify-end">
-            <button
-              onClick={() => router.push("/admin/products")}
-              className="px-6 border border-white/15 text-zinc-300 hover:border-white/40 hover:bg-white/5 font-bold py-2.5 rounded-lg transition-colors"
-            >
+            <button onClick={() => router.push("/admin/products")} className="px-6 border border-white/15 text-zinc-300 hover:border-white/40 hover:bg-white/5 font-bold py-2.5 rounded-lg transition-colors">
               Cancel
             </button>
-            <button
-              onClick={save}
-              disabled={saving}
-              className="bg-gradient-to-r from-accent to-orange-500 hover:from-accent/90 hover:to-orange-500/90 text-primary font-extrabold px-6 py-2.5 rounded-lg transition-all disabled:opacity-50 shadow-glow min-w-[160px]"
-            >
-              {saving ? (
-                <span className="flex items-center justify-center gap-2">
-                  <div className="w-4 h-4 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
-                  Saving...
-                </span>
-              ) : initial ? (
-                "✓ Save Changes"
-              ) : (
-                "✨ Create Product"
-              )}
+            <button onClick={save} disabled={saving} className="bg-gradient-to-r from-accent to-orange-500 hover:from-accent/90 hover:to-orange-500/90 text-primary font-extrabold px-6 py-2.5 rounded-lg transition-all disabled:opacity-50 shadow-glow min-w-[160px]">
+              {saving ? "Saving..." : initial ? "✓ Save Changes" : "✨ Create Product"}
             </button>
           </div>
         </div>
