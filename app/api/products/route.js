@@ -114,6 +114,16 @@ export async function GET(request) {
     return NextResponse.json({ success: false, message: error.message }, { status: 500 });
   }
 }
+// ===== AUTO SKU GENERATOR (SA-SKU-1, SA-SKU-2, ...) =====
+const generateSku = async () => {
+  let n = (await Product.countDocuments()) + 1;
+  let sku = `SA-SKU-${n}`;
+  while (await Product.findOne({ sku })) {
+    n += 1;
+    sku = `SA-SKU-${n}`;
+  }
+  return sku;
+};
 
 // ===== CREATE PRODUCT (permission protected) =====
 export async function POST(request) {
@@ -150,7 +160,7 @@ export async function POST(request) {
       category: body.category.trim(),
       subcategory: body.subcategory || "",
       brand: body.brand || "",
-      sku: body.sku || "",
+            sku: (body.sku || "").trim() || (await generateSku()),
       tags: Array.isArray(body.tags) ? body.tags : [],
       price: Number(body.price),
       discountPrice: Number(body.discountPrice) || 0,

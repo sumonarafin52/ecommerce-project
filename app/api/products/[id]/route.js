@@ -31,7 +31,16 @@ export async function GET(request, { params }) {
     return NextResponse.json({ success: false, message: error.message }, { status: 500 });
   }
 }
-
+// ===== AUTO SKU GENERATOR (SA-SKU-1, SA-SKU-2, ...) =====
+const generateSku = async () => {
+  let n = (await Product.countDocuments()) + 1;
+  let sku = `SA-SKU-${n}`;
+  while (await Product.findOne({ sku })) {
+    n += 1;
+    sku = `SA-SKU-${n}`;
+  }
+  return sku;
+};
 // ===== PUT: admin update =====
 export async function PUT(request, { params }) {
   try {
@@ -78,7 +87,7 @@ export async function PUT(request, { params }) {
     if (body.shortDescription !== undefined) update.shortDescription = body.shortDescription || "";
     if (body.subcategory !== undefined) update.subcategory = body.subcategory || "";
     if (body.brand !== undefined) update.brand = body.brand || "";
-    if (body.sku !== undefined) update.sku = body.sku || "";
+        if (body.sku !== undefined) update.sku = body.sku.trim() || (await generateSku());
     if (body.tags !== undefined) update.tags = Array.isArray(body.tags) ? body.tags : [];
     if (body.images !== undefined) update.images = Array.isArray(body.images) ? body.images : [];
     if (body.stock !== undefined) update.stock = Number(body.stock) || 0;

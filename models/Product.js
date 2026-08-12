@@ -19,7 +19,7 @@ const variantCombinationSchema = new mongoose.Schema(
     comparePrice: { type: Number, default: 0 },
     sku: { type: String, default: "" },
     stock: { type: Number, default: 0 },
-    image: { type: String, default: "" },
+    image: { type: String, default: "" }, // variant select ei photo dekhabe
     active: { type: Boolean, default: true },
   },
   { _id: false }
@@ -41,14 +41,11 @@ const productSchema = new mongoose.Schema(
     stock: { type: Number, default: 0 },
     lowStockThreshold: { type: Number, default: 5 },
     featured: { type: Boolean, default: false },
-    // public   = sob jaygay visible
-    // private  = publicly accessible noy
-    // draft    = ekhono prepare hocche, hidden
-    // unlisted = list e nai, kintu direct URL e accessible
     status: { type: String, enum: ["public", "private", "draft", "unlisted"], default: "public" },
     isActive: { type: Boolean, default: true }, // legacy field — status er sathe auto-sync
     options: [variantOptionSchema],
     combinations: [variantCombinationSchema],
+    digitalProduct: { type: mongoose.Schema.Types.ObjectId, ref: "DigitalProduct", default: null },
     ratingAvg: { type: Number, default: 0 },
     numReviews: { type: Number, default: 0 },
   },
