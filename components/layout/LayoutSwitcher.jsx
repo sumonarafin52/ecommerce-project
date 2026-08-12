@@ -13,11 +13,8 @@ export default function LayoutSwitcher({ children }) {
   const isAdmin = pathname.startsWith("/admin");
 
   useEffect(() => {
-    if (isAdmin) {
-      document.body.classList.add("admin-theme");
-    } else {
-      document.body.classList.remove("admin-theme");
-    }
+    if (isAdmin) document.body.classList.add("admin-theme");
+    else document.body.classList.remove("admin-theme");
     return () => document.body.classList.remove("admin-theme");
   }, [isAdmin]);
 

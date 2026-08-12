@@ -1,9 +1,8 @@
 // app/layout.js
 import { Inter } from "next/font/google";
 import "@/styles/globals.css";
-import Header from "@/components/layout/Header";
-import Footer from "@/components/layout/Footer";
 import Providers from "@/components/Providers";
+import LayoutSwitcher from "@/components/layout/LayoutSwitcher";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -17,9 +16,7 @@ export default function RootLayout({ children }) {
     <html lang="en">
       <body className={inter.className}>
         <Providers>
-          <Header />
-          <main className="min-h-screen">{children}</main>
-          <Footer />
+          <LayoutSwitcher>{children}</LayoutSwitcher>
         </Providers>
       </body>
     </html>

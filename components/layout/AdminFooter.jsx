@@ -6,7 +6,7 @@ import Link from "next/link";
 export default function AdminFooter() {
   const year = new Date().getFullYear();
   return (
-    <footer className="admin-border border-t px-4 lg:px-6 py-4 flex flex-wrap items-center justify-between gap-3 text-[11px] admin-text-muted bg-white">
+    <footer className="admin-footer admin-border border-t px-4 lg:px-6 py-4 flex flex-wrap items-center justify-between gap-3 text-[11px] admin-text-muted bg-white">
       <p>
         © {year} <span className="font-bold admin-text-primary">SumonMart</span> Admin • v1.0
       </p>
