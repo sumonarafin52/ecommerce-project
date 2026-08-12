@@ -5,6 +5,7 @@ import connectDB from "@/lib/db";
 import Order from "@/models/Order";
 import Product from "@/models/Product";
 import User from "@/models/User";
+import Discount from "@/models/Discount";
 import { getEffectivePrice } from "@/lib/utils";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 
@@ -45,9 +46,9 @@ export async function POST(request) {
     }
 
     const isAdmin = session.user.role === "admin";
-    const { items, shippingAddress, paymentMethod, userId, paymentStatus } = await request.json();
+    const { items, shippingAddress, paymentMethod, userId, paymentStatus, discountCode } = await request.json();
 
-    // ADMIN: customer er jonno order create (phone/manual order)
+    // ADMIN: customer er jonno order create
     let targetUserId = session.user.id;
     if (isAdmin && userId) {
       const customer = await User.findById(userId);
@@ -73,7 +74,7 @@ export async function POST(request) {
 
     const finalPaymentMethod = paymentMethod === "cod" ? "cod" : "sslcommerz";
 
-    // DRAFT ORDER: sudhu customer checkout e reuse hobe (admin create always new)
+    // DRAFT ORDER reuse (customer checkout only)
     const existing = isAdmin
       ? null
       : await Order.findOne({
@@ -90,9 +91,10 @@ export async function POST(request) {
       }
     }
 
-    // DB theke price + stock check
-    let totalAmount = 0;
+    // DB theke price + stock + category collect
+    let baseAmount = 0;
     const orderItems = [];
+    const categoryMap = new Map();
     for (const item of items) {
       if (!item.product || !item.quantity) {
         return NextResponse.json({ success: false, message: "Invalid item format" }, { status: 400 });
@@ -110,8 +112,60 @@ export async function POST(request) {
         );
       }
       const price = getEffectivePrice(product);
-      totalAmount += price * item.quantity;
+      baseAmount += price * item.quantity;
+      categoryMap.set(String(product._id), product.category);
       orderItems.push({ product: product._id, name: product.name, quantity: item.quantity, price });
+    }
+
+    // ===== COUPON CALCULATION (server-side, tamper-proof) =====
+    let discountAmount = 0;
+    let appliedCode = "";
+    let discountDoc = null;
+
+    if (discountCode) {
+      const d = await Discount.findOne({ code: String(discountCode).toUpperCase().trim() });
+      if (!d || !d.active) {
+        return NextResponse.json({ success: false, message: "Invalid or inactive coupon code" }, { status: 400 });
+      }
+      if (d.expiresAt && new Date(d.expiresAt) < new Date()) {
+        return NextResponse.json({ success: false, message: "This coupon has expired" }, { status: 400 });
+      }
+      if (d.usageLimit > 0 && d.usedCount >= d.usageLimit) {
+        return NextResponse.json({ success: false, message: "Coupon usage limit reached" }, { status: 400 });
+      }
+      if (d.scope === "customer" && d.target !== targetUserId) {
+        return NextResponse.json({ success: false, message: "This coupon is not valid for your account" }, { status: 400 });
+      }
+      if (d.minAmount > 0 && baseAmount < d.minAmount) {
+        return NextResponse.json(
+          { success: false, message: `Minimum order ${d.minAmount}৳ required for this coupon` },
+          { status: 400 }
+        );
+      }
+
+      // eligible amount (scope onujayi)
+      let eligible = 0;
+      if (d.scope === "all" || d.scope === "customer") {
+        eligible = baseAmount;
+      } else {
+        for (const it of orderItems) {
+          const pid = String(it.product);
+          if (d.scope === "product" && pid === String(d.target)) eligible += it.price * it.quantity;
+          if (d.scope === "category" && categoryMap.get(pid) === d.target) eligible += it.price * it.quantity;
+        }
+      }
+      if (eligible <= 0) {
+        return NextResponse.json({ success: false, message: "Coupon does not apply to these products" }, { status: 400 });
+      }
+
+      discountAmount = d.type === "percentage" ? Math.round((eligible * d.value) / 100) : Math.min(d.value, eligible);
+      appliedCode = d.code;
+      discountDoc = d;
+    }
+
+    const totalAmount = Math.max(0, baseAmount - discountAmount);
+    if (finalPaymentMethod === "sslcommerz" && totalAmount <= 0) {
+      return NextResponse.json({ success: false, message: "Order amount must be positive for online payment" }, { status: 400 });
     }
 
     // stock adjustment (delta)
@@ -130,7 +184,19 @@ export async function POST(request) {
 
     // draft thakle UPDATE
     if (existing) {
+      // coupon usage count adjust (code change hole)
+      if (existing.discountCode !== appliedCode) {
+        if (existing.discountCode) {
+          await Discount.updateOne({ code: existing.discountCode }, { $inc: { usedCount: -1 } });
+        }
+        if (discountDoc) {
+          await Discount.updateOne({ code: appliedCode }, { $inc: { usedCount: 1 } });
+        }
+      }
       existing.items = orderItems;
+      existing.baseAmount = baseAmount;
+      existing.discountCode = appliedCode;
+      existing.discountAmount = discountAmount;
       existing.totalAmount = totalAmount;
       existing.shippingAddress = address;
       existing.paymentMethod = finalPaymentMethod;
@@ -138,13 +204,20 @@ export async function POST(request) {
       return NextResponse.json({ success: true, data: existing });
     }
 
-    // notun order CREATE (customer ba admin)
+    // notun order CREATE
+    if (discountDoc) {
+      await Discount.updateOne({ _id: discountDoc._id }, { $inc: { usedCount: 1 } });
+    }
+
     const order = await Order.create({
       orderNumber: `ORD-${Date.now().toString(36).toUpperCase()}`,
       user: targetUserId,
       items: orderItems,
       shippingAddress: address,
       paymentMethod: finalPaymentMethod,
+      baseAmount,
+      discountCode: appliedCode,
+      discountAmount,
       totalAmount,
       paymentStatus: isAdmin && paymentStatus ? paymentStatus : "pending",
       orderStatus: "processing",

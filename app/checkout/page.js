@@ -1,7 +1,7 @@
 // app/checkout/page.js
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
 import useCartStore from "@/store/cartStore";
@@ -21,9 +21,52 @@ export default function CheckoutPage() {
   const [placing, setPlacing] = useState(false);
   const [placed, setPlaced] = useState(false);
 
-  const total = items.reduce((sum, i) => sum + getEffectivePrice(i) * i.quantity, 0);
+  const [codeInput, setCodeInput] = useState("");
+  const [applied, setApplied] = useState(null);
+  const [couponMsg, setCouponMsg] = useState("");
+  const [checking, setChecking] = useState(false);
+
+  const baseTotal = items.reduce((sum, i) => sum + getEffectivePrice(i) * i.quantity, 0);
+
+  const previewDiscount = useMemo(() => {
+    if (!applied) return 0;
+    if (applied.minAmount && baseTotal < applied.minAmount) return 0;
+    let eligible = 0;
+    if (applied.scope === "all" || applied.scope === "customer") {
+      eligible = baseTotal;
+    } else {
+      items.forEach((i) => {
+        if (applied.scope === "product" && String(i._id) === String(applied.target))
+          eligible += getEffectivePrice(i) * i.quantity;
+        if (applied.scope === "category" && i.category === applied.target)
+          eligible += getEffectivePrice(i) * i.quantity;
+      });
+    }
+    return applied.type === "percentage" ? Math.round((eligible * applied.value) / 100) : Math.min(applied.value, eligible);
+  }, [applied, items, baseTotal]);
+
+  const finalTotal = Math.max(0, baseTotal - previewDiscount);
 
   const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
+
+  const applyCoupon = async () => {
+    if (!codeInput.trim()) return;
+    setChecking(true);
+    setCouponMsg("");
+    try {
+      const res = await fetch(`/api/discounts?code=${encodeURIComponent(codeInput.trim())}`).then((r) => r.json());
+      if (res.success) {
+        setApplied(res.data);
+        setCouponMsg("");
+      } else {
+        setApplied(null);
+        setCouponMsg(res.message);
+      }
+    } catch {
+      setCouponMsg("Failed to validate coupon");
+    }
+    setChecking(false);
+  };
 
   const placeOrder = async (e) => {
     e.preventDefault();
@@ -34,7 +77,6 @@ export default function CheckoutPage() {
     }
     setPlacing(true);
     try {
-      // 1) order create/update (server draft logic handle korbe)
       const orderRes = await fetch("/api/orders", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -42,13 +84,13 @@ export default function CheckoutPage() {
           items: items.map((i) => ({ product: i._id, quantity: i.quantity })),
           shippingAddress: form,
           paymentMethod: method,
+          discountCode: applied?.code || "",
         }),
       }).then((r) => r.json());
 
       if (!orderRes.success) throw new Error(orderRes.message);
       const orderId = orderRes.data._id;
 
-      // 2) COD hole payment redirect lagbe na
       if (method === "cod") {
         clearCart();
         setPlaced(true);
@@ -56,7 +98,6 @@ export default function CheckoutPage() {
         return;
       }
 
-      // 3) SSLCommerz payment initiate
       const payRes = await fetch("/api/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -88,17 +129,13 @@ export default function CheckoutPage() {
       <div className="bg-primary min-h-screen flex flex-col items-center justify-center gap-4 text-center px-4">
         <p className="text-xl font-bold text-white">Login required</p>
         <p className="text-sm text-zinc-400">Please sign in to place your order.</p>
-        <Link
-          href="/login"
-          className="bg-accent hover:bg-accent/80 text-primary font-bold px-6 py-3 rounded-md transition-colors"
-        >
+        <Link href="/login" className="bg-accent hover:bg-accent/80 text-primary font-bold px-6 py-3 rounded-md transition-colors">
           Sign in
         </Link>
       </div>
     );
   }
 
-  // COD success screen
   if (placed) {
     return (
       <div className="bg-primary min-h-screen flex items-center justify-center px-4">
@@ -110,19 +147,13 @@ export default function CheckoutPage() {
           </div>
           <h1 className="text-2xl font-extrabold text-white">Order Placed Successfully!</h1>
           <p className="text-sm text-zinc-400">
-            Dhonnobad! Apnar order ti confirm hoyeche. Product receive korar somoy payment korun (Cash on Delivery).
+            Dhonnobad! Apnar order confirm hoyeche. Product receive korar somoy payment korun (Cash on Delivery).
           </p>
           <div className="flex gap-3 pt-2">
-            <Link
-              href="/profile"
-              className="flex-1 bg-accent hover:bg-accent/80 text-primary font-bold py-3 rounded-md transition-colors text-sm"
-            >
+            <Link href="/profile" className="flex-1 bg-accent hover:bg-accent/80 text-primary font-bold py-3 rounded-md transition-colors text-sm">
               View My Orders
             </Link>
-            <Link
-              href="/products"
-              className="flex-1 border border-white/15 text-zinc-300 hover:border-accent hover:text-accent font-bold py-3 rounded-md transition-colors text-sm"
-            >
+            <Link href="/products" className="flex-1 border border-white/15 text-zinc-300 hover:border-accent hover:text-accent font-bold py-3 rounded-md transition-colors text-sm">
               Continue Shopping
             </Link>
           </div>
@@ -135,10 +166,7 @@ export default function CheckoutPage() {
     return (
       <div className="bg-primary min-h-screen flex flex-col items-center justify-center gap-4 text-center px-4">
         <p className="text-xl font-bold text-white">Your cart is empty</p>
-        <Link
-          href="/products"
-          className="bg-accent hover:bg-accent/80 text-primary font-bold px-6 py-3 rounded-md transition-colors"
-        >
+        <Link href="/products" className="bg-accent hover:bg-accent/80 text-primary font-bold px-6 py-3 rounded-md transition-colors">
           Start Shopping
         </Link>
       </div>
@@ -199,14 +227,48 @@ export default function CheckoutPage() {
             </div>
 
             {error && (
-              <p className="text-sm font-medium text-red-400 bg-red-500/10 border border-red-500/30 rounded-md px-4 py-3">
-                {error}
-              </p>
+              <p className="text-sm font-medium text-red-400 bg-red-500/10 border border-red-500/30 rounded-md px-4 py-3">{error}</p>
             )}
           </form>
 
           <div className="bg-primary-light border border-white/10 rounded-xl p-5 space-y-3 lg:sticky lg:top-24">
             <h2 className="text-lg font-bold text-white">Order Summary</h2>
+
+            {/* coupon box */}
+            <div className="space-y-2">
+              {applied ? (
+                <div className="flex items-center justify-between bg-green-500/10 border border-green-500/30 rounded-md px-3 py-2">
+                  <p className="text-xs font-bold text-green-400">
+                    🏷️ {applied.code} applied
+                    {previewDiscount === 0 && applied.minAmount > 0 && (
+                      <span className="block text-[10px] text-zinc-400">Minimum {applied.minAmount}৳ order required</span>
+                    )}
+                  </p>
+                  <button type="button" onClick={() => setApplied(null)} className="text-zinc-400 hover:text-red-400 text-sm" aria-label="Remove coupon">
+                    ✕
+                  </button>
+                </div>
+              ) : (
+                <div className="flex gap-2">
+                  <input
+                    className="flex-1 bg-primary border border-white/15 rounded-md px-3 py-2 text-xs text-white placeholder-zinc-500 outline-none focus:border-accent uppercase"
+                    placeholder="Coupon code"
+                    value={codeInput}
+                    onChange={(e) => setCodeInput(e.target.value)}
+                  />
+                  <button
+                    type="button"
+                    onClick={applyCoupon}
+                    disabled={checking}
+                    className="border border-accent text-accent hover:bg-accent hover:text-primary text-xs font-bold px-3 rounded-md transition-colors disabled:opacity-50"
+                  >
+                    {checking ? "..." : "Apply"}
+                  </button>
+                </div>
+              )}
+              {couponMsg && <p className="text-[11px] text-red-400">{couponMsg}</p>}
+            </div>
+
             <div className="space-y-2 max-h-56 overflow-y-auto no-scrollbar">
               {items.map((i) => (
                 <div key={i._id} className="flex justify-between text-sm text-zinc-300">
@@ -217,29 +279,35 @@ export default function CheckoutPage() {
                 </div>
               ))}
             </div>
+
+            <div className="flex justify-between text-sm text-zinc-300">
+              <span>Subtotal</span>
+              <span>{formatCurrency(baseTotal)}</span>
+            </div>
+            {previewDiscount > 0 && (
+              <div className="flex justify-between text-sm text-green-400 font-bold">
+                <span>Discount ({applied.code})</span>
+                <span>− {formatCurrency(previewDiscount)}</span>
+              </div>
+            )}
             <div className="flex justify-between text-sm text-zinc-300">
               <span>Delivery</span>
               <span className="text-green-400 font-bold">Free</span>
             </div>
             <div className="border-t border-white/10 pt-3 flex justify-between text-white font-bold">
               <span>Total</span>
-              <span className="text-accent text-lg">{formatCurrency(total)}</span>
+              <span className="text-accent text-lg">{formatCurrency(finalTotal)}</span>
             </div>
+
             <button
               onClick={placeOrder}
               disabled={placing}
               className="w-full bg-accent hover:bg-accent/80 text-primary font-bold py-3 rounded-md transition-colors disabled:opacity-50"
             >
-              {placing
-                ? "Placing order..."
-                : method === "cod"
-                ? "Place Order (COD)"
-                : "Place Order & Pay"}
+              {placing ? "Placing order..." : method === "cod" ? "Place Order (COD)" : "Place Order & Pay"}
             </button>
             <p className="text-[11px] text-zinc-500 text-center">
-              {method === "cod"
-                ? "Product receive korar somoy cash payment korben."
-                : "You will be redirected to SSLCommerz secure payment page."}
+              {method === "cod" ? "Product receive korar somoy cash payment korben." : "You will be redirected to SSLCommerz secure payment page."}
             </p>
           </div>
         </div>

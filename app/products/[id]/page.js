@@ -7,6 +7,7 @@ import Link from "next/link";
 import useCartStore from "@/store/cartStore";
 import ProductGrid from "@/components/product/ProductGrid";
 import { formatCurrency, getEffectivePrice, getDiscountPercentage } from "@/lib/utils";
+import Reviews from "@/components/product/Reviews";
 
 function Stars({ rating, count }) {
   return (
@@ -50,7 +51,6 @@ export default function ProductDetailsPage() {
         setProduct(p);
         setQuantity(1);
         setImageIndex(0);
-        // remember for "Your choice products"
         try {
           const viewed = JSON.parse(localStorage.getItem("sm_viewed") || "[]");
           const rest = viewed.filter((v) => v.id !== p._id);
@@ -240,6 +240,8 @@ export default function ProductDetailsPage() {
             {product.description || "No description available."}
           </p>
         </section>
+
+        <Reviews productId={product._id} />
 
         <section>
           <h2 className="text-lg sm:text-xl font-bold text-white mb-4 flex items-center gap-2">

@@ -19,14 +19,16 @@ const orderSchema = new mongoose.Schema(
       address: { type: String, required: true },
       city: { type: String, required: true },
     },
-    // sslcommerz = advance payment, cod = receive er por payment (custom paid)
     paymentMethod: { type: String, enum: ["sslcommerz", "cod"], default: "sslcommerz" },
     paymentStatus: { type: String, enum: ["pending", "paid", "failed", "refunded"], default: "pending" },
     orderStatus: { type: String, enum: ["processing", "shipped", "delivered", "cancelled"], default: "processing" },
-    totalAmount: { type: Number, required: true },
-    shippedAt: { type: Date }, // admin ship korle set hobe
-    deliveredAt: { type: Date }, // customer confirm / 30 din auto-fulfill
-    reviewed: { type: Boolean, default: false }, // customer review dile true
+    totalAmount: { type: Number, required: true }, // final amount (discount applied)
+    baseAmount: { type: Number, default: 0 }, // discount er ager amount
+    discountCode: { type: String, default: "" }, // use howa coupon code
+    discountAmount: { type: Number, default: 0 }, // koto taka discount peyeche
+    shippedAt: { type: Date },
+    deliveredAt: { type: Date },
+    reviewed: { type: Boolean, default: false },
   },
   { timestamps: true }
 );
