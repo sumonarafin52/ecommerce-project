@@ -3,12 +3,21 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  /* storefront brand accent — warm orange (Amazon-style) */
+  --color-accent: 255 153 0; /* #FF9900 */
+  --color-accent-2: 234 88 12; /* #EA580C — secondary gradient stop */
+}
+
 @layer base {
   html {
     @apply scroll-smooth;
   }
   body {
     @apply bg-primary text-zinc-100 antialiased;
+    /* Bangla glyphs fall back to Noto Sans Bengali instead of a mismatched
+       system font; Inter still leads for Latin text. */
+    font-family: var(--font-inter), var(--font-bn), ui-sans-serif, system-ui, sans-serif;
   }
   ::selection {
     @apply bg-accent text-primary;
@@ -28,7 +37,7 @@
   border-radius: 8px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #ff9900;
+  background: rgb(var(--color-accent));
 }
 
 /* hide scrollbar for horizontal snap rows */
@@ -39,46 +48,90 @@
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
-/* ===== ADMIN LIGHT THEME ===== */
+/* ===== ADMIN THEME — Shopify-inspired (Polaris-style) design system ===== */
+/* Flipping --color-accent here re-colors EVERY existing text-accent / bg-accent /
+   border-accent / from-accent / to-accent / ring-accent / accent-opacity utility
+   across the whole admin panel automatically (see tailwind.config.js) — no JSX
+   edits needed, so this stays safe to keep extending with Qwen or anything else. */
 body.admin-theme {
-  background: #f1f5f9;
-  color: #0f172a;
+  --color-accent: 0 128 96;   /* #008060 — Shopify green */
+  --color-accent-2: 0 76 63;  /* #004C3F — darker green, gradient stop */
+
+  --admin-canvas: #f6f6f7;
+  --admin-surface: #ffffff;
+  --admin-border: #e3e5e7;
+  --admin-border-strong: #c9cccf;
+  --admin-text-primary: #1a1d1f;
+  --admin-text-secondary: #52575c;
+  --admin-text-muted: #8c9196;
+
+  background: var(--admin-canvas);
+  color: var(--admin-text-primary);
+  font-feature-settings: "cv11", "ss01";
 }
 body.admin-theme header:not(.admin-header) { display: none !important; }
 body.admin-theme footer:not(.admin-footer) { display: none !important; }
 
 body.admin-theme .admin-header {
-  background: rgba(255, 255, 255, 0.85);
+  background: rgba(255, 255, 255, 0.92);
   backdrop-filter: blur(12px);
-  border-bottom: 1px solid #e2e8f0;
+  border-bottom: 1px solid var(--admin-border);
 }
 body.admin-theme .admin-footer {
-  background: white;
-  border-top: 1px solid #e2e8f0;
+  background: var(--admin-surface);
+  border-top: 1px solid var(--admin-border);
 }
 body.admin-theme .admin-sidebar {
-  background: white;
-  border-right: 1px solid #e2e8f0;
+  background: var(--admin-surface);
+  border-right: 1px solid var(--admin-border);
 }
 body.admin-theme .admin-card {
-  background: white;
-  border: 1px solid #e2e8f0;
-  box-shadow: 0 1px 3px rgb(0 0 0 / 0.08);
+  background: var(--admin-surface);
+  border: 1px solid var(--admin-border);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.04), 0 1px 0 rgb(0 0 0 / 0.02);
+  transition: box-shadow 0.15s ease, transform 0.15s ease, border-color 0.15s ease;
 }
-body.admin-theme .admin-text-primary { color: #0f172a; }
-body.admin-theme .admin-text-secondary { color: #475569; }
-body.admin-theme .admin-text-muted { color: #94a3b8; }
-body.admin-theme .admin-border { border-color: #e2e8f0; }
+body.admin-theme a.admin-card:hover,
+body.admin-theme button.admin-card:hover {
+  border-color: var(--admin-border-strong);
+  box-shadow: 0 4px 10px rgb(0 0 0 / 0.06);
+}
+body.admin-theme .admin-text-primary { color: var(--admin-text-primary); }
+body.admin-theme .admin-text-secondary { color: var(--admin-text-secondary); }
+body.admin-theme .admin-text-muted { color: var(--admin-text-muted); }
+body.admin-theme .admin-border { border-color: var(--admin-border); }
 body.admin-theme .admin-input {
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-  color: #0f172a;
+  background: var(--admin-surface);
+  border: 1px solid var(--admin-border-strong);
+  color: var(--admin-text-primary);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 body.admin-theme .admin-input:focus {
-  border-color: #f5a623;
-  background: white;
+  border-color: rgb(var(--color-accent));
+  box-shadow: 0 0 0 3px rgb(var(--color-accent) / 0.15);
+  background: var(--admin-surface);
   outline: none;
 }
+
+/* Brand gradient companion stops — the orange the storefront pairs with
+   "accent" (logo chip, avatars, notification dot, header underline) now
+   follows the green brand instead of clashing with it. Semantic colors
+   (amber = warning, rose = danger, blue/purple/indigo = KPI variety) are
+   left untouched on purpose. */
+body.admin-theme .from-orange-600,
+body.admin-theme .group-hover\:from-orange-600 { --tw-gradient-from: var(--admin-text-primary, #004C3F) !important; }
+body.admin-theme .from-orange-600 { --tw-gradient-from: #004C3F !important; }
+body.admin-theme .to-orange-600 { --tw-gradient-to: #004C3F !important; }
+body.admin-theme .to-orange-500,
+body.admin-theme .group-hover\:to-orange-400 { --tw-gradient-to: #00A37A !important; }
+body.admin-theme .via-orange-400 { --tw-gradient-via: #00A37A !important; }
+body.admin-theme .to-orange-500\/90,
+body.admin-theme .hover\:to-orange-500\/90:hover { --tw-gradient-to: rgb(0 163 122 / 0.9) !important; }
+body.admin-theme .to-orange-500\/10 { --tw-gradient-to: rgb(0 163 122 / 0.1) !important; }
+body.admin-theme .to-orange-500\/20 { --tw-gradient-to: rgb(0 163 122 / 0.2) !important; }
+body.admin-theme .from-orange-50 { --tw-gradient-from: #E3F6EF !important; }
+body.admin-theme .bg-orange-50,
+body.admin-theme .hover\:bg-orange-50:hover { background-color: #E3F6EF !important; }
 /* ===== ADMIN PAGES GLOBAL LIGHT OVERRIDE ===== */
 body.admin-theme .bg-primary { background-color: #f1f5f9 !important; }
 body.admin-theme .bg-primary-light { background-color: #ffffff !important; }
