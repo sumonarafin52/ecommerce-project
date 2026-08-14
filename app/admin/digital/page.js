@@ -62,6 +62,7 @@ export default function AdminDigitalPage() {
     try {
       const fd = new FormData();
       fd.append("file", f);
+      fd.append("kind", "digital"); // allow non-image types (ebooks/zips) on the shared upload endpoint
       const res = await fetch("/api/upload", { method: "POST", body: fd }).then((r) => r.json());
       const url = res.url || res.secure_url || res.data?.url || res.data?.secure_url;
       if (!url) throw new Error(res.message || "File upload failed");

@@ -4,6 +4,7 @@ import CredentialsProvider from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
 import connectDB from "@/lib/db";
 import User from "@/models/User";
+import { rateLimit, getClientIp } from "@/lib/rateLimit";
 
 if (!process.env.NEXTAUTH_SECRET) {
   throw new Error("NEXTAUTH_SECRET environment variable is not set");
@@ -26,15 +27,27 @@ export const authOptions = {
         email: { label: "Email", type: "email" },
         password: { label: "Password", type: "password" },
       },
-      async authorize(credentials) {
-        try {
-          if (!credentials?.email || !credentials?.password) {
-            return null;
-          }
+      async authorize(credentials, req) {
+        if (!credentials?.email || !credentials?.password) {
+          return null;
+        }
 
+        // brute-force protection: limit attempts per IP+email pair, not
+        // just per IP, so it can't be used to lock other people's accounts.
+        // Thrown outside the try/catch below so the distinct message
+        // actually reaches the client instead of collapsing into a
+        // generic "invalid credentials" response.
+        const ip = getClientIp(req);
+        const emailKey = credentials.email.trim().toLowerCase();
+        const limit = rateLimit(`login:${ip}:${emailKey}`, { max: 8, windowMs: 10 * 60_000 });
+        if (!limit.allowed) {
+          throw new Error("Too many login attempts. Please try again in a few minutes.");
+        }
+
+        try {
           await connectDB();
 
-          const user = await User.findOne({ email: credentials.email })
+          const user = await User.findOne({ email: emailKey })
             .select("+password")
             .lean();
 

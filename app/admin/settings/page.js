@@ -18,7 +18,7 @@ const modules = [
     title: "Payment Methods",
     desc: "Stripe, PayPal, SSLCommerz, bKash, Nagad, Rocket & more",
     icon: "💳",
-    status: "soon",
+    status: "ready",
   },
   {
     href: "/admin/settings/billing",

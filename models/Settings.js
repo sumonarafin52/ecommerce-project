@@ -74,9 +74,14 @@ const settingsSchema = new mongoose.Schema(
       banners: [bannerSchema],
       sections: [homeSectionSchema],
     },
-    // Reserved namespaces for later phases — kept here (empty by default) so
-    // the schema doesn't need a breaking migration when those phases land.
+    // payment: keyed by gateway id (see lib/paymentGateways.js), e.g.
+    //   { sslcommerz: { enabled, mode: "sandbox"|"live", fields: { storeId, storePassword } },
+    //     stripe:     { enabled, mode, fields: { publishableKey, secretKey, webhookSecret } }, ... }
+    // Left as Mixed on purpose — each gateway has a different credential
+    // shape, and this namespace was reserved (not created) in Phase 1
+    // specifically so it could be filled in here without a migration.
     payment: { type: mongoose.Schema.Types.Mixed, default: {} },
+    // billing/shipping: reserved for the next phases — same reasoning.
     billing: { type: mongoose.Schema.Types.Mixed, default: {} },
     shipping: { type: mongoose.Schema.Types.Mixed, default: {} },
   },

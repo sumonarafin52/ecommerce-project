@@ -4,11 +4,22 @@ import { getServerSession } from "next-auth";
 import bcrypt from "bcryptjs";
 import connectDB from "@/lib/db";
 import User from "@/models/User";
+import { rateLimit, getClientIp } from "@/lib/rateLimit";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 
 export async function POST(request) {
   try {
     await connectDB();
+
+    const ip = getClientIp(request);
+    const limit = rateLimit(`register:${ip}`, { max: 10, windowMs: 60 * 60_000 }); // 10/hour per IP
+    if (!limit.allowed) {
+      return NextResponse.json(
+        { success: false, message: "Too many signup attempts. Please try again later." },
+        { status: 429 }
+      );
+    }
+
     const { name, email, password } = await request.json();
 
     if (!name || !email || !password) {
@@ -21,13 +32,14 @@ export async function POST(request) {
       );
     }
 
-    const existing = await User.findOne({ email });
+    const normalizedEmail = email.trim().toLowerCase();
+    const existing = await User.findOne({ email: normalizedEmail });
     if (existing) {
       return NextResponse.json({ success: false, message: "Email already registered" }, { status: 400 });
     }
 
     const hashed = await bcrypt.hash(password, 10);
-    const user = await User.create({ name, email, password: hashed });
+    const user = await User.create({ name, email: normalizedEmail, password: hashed });
 
     return NextResponse.json(
       { success: true, data: { id: user._id, name: user.name, email: user.email } },

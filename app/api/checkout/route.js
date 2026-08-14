@@ -4,22 +4,63 @@ import { getServerSession } from "next-auth";
 import { createRequire } from "module";
 import connectDB from "@/lib/db";
 import Order from "@/models/Order";
+import Settings from "@/models/Settings";
+import { decryptSecret } from "@/lib/crypto";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 
 const require = createRequire(import.meta.url);
 const SslCommerzPayment = require("sslcommerz-lts");
 
-const storeId = process.env.SSLCOMMERZ_STORE_ID;
-const storePass = process.env.SSLCOMMERZ_STORE_PASS || process.env.SSLCOMMERZ_STORE_PASSWORD;
-const isLive = process.env.SSLCOMMERZ_IS_LIVE === "true";
+// Settings → Payment Methods → SSLCommerz takes priority once an admin
+// configures and enables it there; env vars remain the fallback so
+// deployments that haven't touched the new Settings UI keep working exactly
+// as before (non-breaking).
+async function getSslcommerzCredentials() {
+  try {
+    const settings = await Settings.findOne().lean();
+    const stored = settings?.payment?.sslcommerz;
+    if (stored?.enabled && stored?.fields?.storeId && stored?.fields?.storePassword) {
+      return {
+        storeId: stored.fields.storeId,
+        storePass: decryptSecret(stored.fields.storePassword),
+        isLive: stored.mode === "live",
+      };
+    }
+  } catch {
+    // fall through to env vars below
+  }
+  return {
+    storeId: process.env.SSLCOMMERZ_STORE_ID,
+    storePass: process.env.SSLCOMMERZ_STORE_PASS || process.env.SSLCOMMERZ_STORE_PASSWORD,
+    isLive: process.env.SSLCOMMERZ_IS_LIVE === "true",
+  };
+}
 
-export const runtime = "nodejs";
+// Verifies a transaction server-to-server against SSLCommerz's own Validation
+// API before trusting it. Without this, the "success" postback below is just
+// an unauthenticated POST with a `status` field anyone could forge — this
+// closes that hole by re-checking with SSLCommerz directly, and additionally
+// confirms the validated amount/currency match what we actually charged.
+async function verifySslcommerzTransaction({ valId, storeId, storePass, isLive }) {
+  if (!valId) return null;
+  const base = isLive
+    ? "https://securepay.sslcommerz.com/validator/api/validationserverAPI.php"
+    : "https://sandbox.sslcommerz.com/validator/api/validationserverAPI.php";
+  const url = `${base}?val_id=${encodeURIComponent(valId)}&store_id=${encodeURIComponent(storeId)}&store_passwd=${encodeURIComponent(storePass)}&format=json`;
+  try {
+    const res = await fetch(url).then((r) => r.json());
+    return res;
+  } catch {
+    return null;
+  }
+}
 
 export async function POST(request) {
   try {
     await connectDB();
     const origin = new URL(request.url).origin;
     const contentType = request.headers.get("content-type") || "";
+    const { storeId, storePass, isLive } = await getSslcommerzCredentials();
 
     if (!storeId || !storePass) {
       return NextResponse.json(
@@ -33,14 +74,33 @@ export async function POST(request) {
       const form = await request.formData();
       const tranId = form.get("tran_id");
       const status = form.get("status");
+      const valId = form.get("val_id");
 
       const order = await Order.findById(tranId);
-      if (order) {
-        if (status === "VALID" || status === "VALIDATED") order.paymentStatus = "paid";
-        else if (status === "FAILED") order.paymentStatus = "failed";
+      let finalStatus = status;
+
+      if (order && order.paymentStatus !== "paid") {
+        if ((status === "VALID" || status === "VALIDATED") && valId) {
+          // never trust the postback's own claim — re-verify with SSLCommerz
+          const verified = await verifySslcommerzTransaction({ valId, storeId, storePass, isLive });
+          const amountMatches = verified && Math.abs(Number(verified.amount) - order.totalAmount) < 1;
+          const statusVerified = verified?.status === "VALID" || verified?.status === "VALIDATED";
+
+          if (verified && statusVerified && amountMatches && String(verified.tran_id) === String(tranId)) {
+            order.paymentStatus = "paid";
+            order.paymentVerifiedAt = new Date();
+          } else {
+            // postback claimed success but server-side verification didn't
+            // match — treat as failed rather than trusting the client
+            order.paymentStatus = "failed";
+            finalStatus = "FAILED";
+          }
+        } else if (status === "FAILED") {
+          order.paymentStatus = "failed";
+        }
         await order.save();
       }
-      return NextResponse.redirect(`${origin}/profile?payment=${status}`);
+      return NextResponse.redirect(`${origin}/profile?payment=${finalStatus}`);
     }
 
     const session = await getServerSession(authOptions);

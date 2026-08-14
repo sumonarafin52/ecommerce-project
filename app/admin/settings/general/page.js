@@ -6,6 +6,7 @@ import toast from "react-hot-toast";
 import PageHeader from "@/components/admin/ui/PageHeader";
 import Tabs from "@/components/admin/ui/Tabs";
 import Badge from "@/components/admin/ui/Badge";
+import { Field, Input, Textarea, SaveBar } from "@/components/admin/ui/FormField";
 import usePermissions from "@/lib/usePermissions";
 
 const TABS = [
@@ -28,49 +29,9 @@ function uid() {
   return Math.random().toString(36).slice(2, 10);
 }
 
-// ---- small shared bits (kept local to this page for now; promote to
-// components/admin/ui if reused by Payment/Billing/Shipping later) ----
-
-function Field({ label, hint, children }) {
-  return (
-    <label className="block">
-      <span className="text-xs font-bold admin-text-secondary mb-1.5 block">{label}</span>
-      {children}
-      {hint && <span className="text-[11px] admin-text-muted mt-1 block">{hint}</span>}
-    </label>
-  );
-}
-
-function Input(props) {
-  return <input {...props} className={`admin-input w-full rounded-lg px-3 py-2.5 text-sm outline-none ${props.className || ""}`} />;
-}
-
-function Textarea(props) {
-  return <textarea {...props} className={`admin-input w-full rounded-lg px-3 py-2.5 text-sm outline-none resize-y ${props.className || ""}`} />;
-}
-
-function SaveBar({ dirty, saving, onSave, onDiscard }) {
-  if (!dirty) return null;
-  return (
-    <div className="sticky bottom-4 z-20 mt-6">
-      <div className="admin-card rounded-xl px-4 py-3 flex items-center justify-between shadow-lg">
-        <p className="text-sm font-bold admin-text-primary">You have unsaved changes</p>
-        <div className="flex items-center gap-2">
-          <button onClick={onDiscard} className="px-4 py-2 rounded-lg text-sm font-bold admin-text-secondary hover:bg-gray-100 transition-colors">
-            Discard
-          </button>
-          <button
-            onClick={onSave}
-            disabled={saving}
-            className="px-4 py-2 rounded-lg text-sm font-bold bg-accent hover:bg-accent/90 text-white transition-colors disabled:opacity-60"
-          >
-            {saving ? "Saving..." : "Save changes"}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
+// Field/Input/Textarea/SaveBar now live in components/admin/ui/FormField —
+// promoted there so Payment Methods (and Billing/Shipping later) can reuse
+// the exact same primitives instead of duplicating them per page.
 
 function ImageUploader({ value, onChange, label = "Image", aspect = "aspect-video" }) {
   const [uploading, setUploading] = useState(false);

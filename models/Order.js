@@ -21,6 +21,10 @@ const orderSchema = new mongoose.Schema(
     },
     paymentMethod: { type: String, enum: ["sslcommerz", "cod"], default: "sslcommerz" },
     paymentStatus: { type: String, enum: ["pending", "paid", "failed", "refunded"], default: "pending" },
+    // set only after a server-to-server SSLCommerz validation API check
+    // succeeds — an audit trail distinguishing verified payments from the
+    // raw (forgeable) postback status
+    paymentVerifiedAt: { type: Date },
     orderStatus: { type: String, enum: ["processing", "shipped", "delivered", "cancelled"], default: "processing" },
     totalAmount: { type: Number, required: true }, // final amount (discount applied)
     baseAmount: { type: Number, default: 0 }, // discount er ager amount

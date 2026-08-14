@@ -4,6 +4,8 @@ import { getServerSession } from "next-auth";
 import connectDB from "@/lib/db";
 import Settings from "@/models/Settings";
 import { hasPermission } from "@/lib/rbac";
+import { PAYMENT_GATEWAYS, MASK, isGatewayConfigured } from "@/lib/paymentGateways";
+import { encryptSecret } from "@/lib/crypto";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 
 // there is only ever one Settings document — fetch it, creating a default
@@ -16,12 +18,56 @@ async function getOrCreateSettings() {
   return settings;
 }
 
-// GET: public — storefront (Header/Footer/homepage) and admin both read this
-export async function GET() {
+// Admin view: same document, but every secret credential field is replaced
+// with a mask. The real value never leaves the server once saved — the
+// admin UI only ever sees "is this set or not", never the value itself.
+function toAdminSafeJSON(settings) {
+  const obj = settings.toObject();
+  const payment = obj.payment || {};
+  const maskedPayment = {};
+  for (const gateway of PAYMENT_GATEWAYS) {
+    const stored = payment[gateway.id] || {};
+    const fields = { ...(stored.fields || {}) };
+    for (const f of gateway.fields) {
+      if (f.secret && fields[f.key]) fields[f.key] = MASK;
+    }
+    maskedPayment[gateway.id] = {
+      enabled: !!stored.enabled,
+      mode: stored.mode || "sandbox",
+      fields,
+      configured: isGatewayConfigured(gateway, stored.fields || {}),
+    };
+  }
+  return { ...obj, payment: maskedPayment };
+}
+
+// Public view (storefront): no credentials, no config shape at all — just
+// which gateways are enabled and ready, so checkout can decide what to show.
+function toPublicJSON(settings) {
+  const obj = settings.toObject();
+  const payment = obj.payment || {};
+  const enabledPaymentMethods = PAYMENT_GATEWAYS.filter((gateway) => {
+    const stored = payment[gateway.id];
+    return stored?.enabled && isGatewayConfigured(gateway, stored.fields || {});
+  }).map((g) => ({ id: g.id, label: g.label, region: g.region }));
+
+  const { payment: _p, billing: _b, shipping: _s, ...rest } = obj;
+  return { ...rest, enabledPaymentMethods };
+}
+
+// GET: public callers (storefront Header/Footer/homepage) get the safe,
+// credential-free view. Signed-in staff with "settings" permission get the
+// full admin view (masked secrets) so the Settings pages can render state.
+export async function GET(request) {
   try {
     await connectDB();
     const settings = await getOrCreateSettings();
-    return NextResponse.json({ success: true, data: settings });
+
+    const session = await getServerSession(authOptions);
+    const isAdminViewer = session?.user && (await hasPermission(session, "settings"));
+
+    const data = isAdminViewer ? toAdminSafeJSON(settings) : toPublicJSON(settings);
+    return NextResponse.json({ success: true, data });
   } catch (error) {
     return NextResponse.json({ success: false, message: error.message }, { status: 500 });
   }
@@ -52,11 +98,53 @@ export async function PUT(request) {
       if (Array.isArray(body.homepage.sections)) settings.homepage.sections = body.homepage.sections;
     }
 
+    if (body.payment && typeof body.payment === "object") {
+      const currentPayment = settings.payment || {};
+      const nextPayment = { ...currentPayment };
+
+      for (const gateway of PAYMENT_GATEWAYS) {
+        const incoming = body.payment[gateway.id];
+        if (!incoming || typeof incoming !== "object") continue;
+
+        const existingGateway = currentPayment[gateway.id] || {};
+        const existingFields = existingGateway.fields || {};
+        const mergedFields = { ...existingFields };
+
+        for (const f of gateway.fields) {
+          const incomingValue = incoming.fields?.[f.key];
+          if (incomingValue === undefined) continue;
+          // a masked placeholder means "unchanged" — never overwrite a real
+          // secret with the mask string itself
+          if (f.secret && incomingValue === MASK) continue;
+          // secrets are encrypted (AES-256-GCM) before they ever touch the
+          // database — see lib/crypto.js
+          mergedFields[f.key] = f.secret ? encryptSecret(incomingValue) : incomingValue;
+        }
+
+        const wantsEnabled = !!incoming.enabled;
+        if (wantsEnabled && !isGatewayConfigured(gateway, mergedFields)) {
+          return NextResponse.json(
+            { success: false, message: `${gateway.label}: fill in all required fields before enabling it` },
+            { status: 400 }
+          );
+        }
+
+        nextPayment[gateway.id] = {
+          enabled: wantsEnabled,
+          mode: gateway.hasModes ? (incoming.mode === "live" ? "live" : "sandbox") : "live",
+          fields: mergedFields,
+        };
+      }
+
+      settings.payment = nextPayment;
+      settings.markModified("payment");
+    }
+
     settings.markModified("general");
     settings.markModified("homepage");
     await settings.save();
 
-    return NextResponse.json({ success: true, data: settings });
+    return NextResponse.json({ success: true, data: toAdminSafeJSON(settings) });
   } catch (error) {
     return NextResponse.json({ success: false, message: error.message }, { status: 500 });
   }
