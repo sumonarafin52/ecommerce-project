@@ -64,6 +64,10 @@ export default function Header() {
   const [query, setQuery] = useState("");
   const [openMenu, setOpenMenu] = useState(null);
   const [categories, setCategories] = useState([]);
+  // store branding — falls back to the original hardcoded "sumon mart" look
+  // until Settings → General is configured, so nothing changes visually
+  // for stores that haven't set a custom name/logo yet
+  const [brand, setBrand] = useState({ storeName: "sumon mart", storeLogo: "", headerAnnouncement: "" });
 
   const t = translations[lang];
 
@@ -78,6 +82,18 @@ export default function Header() {
       .then((r) => r.json())
       .then((res) => {
         if (res.success) setCategories([...new Set(res.data.products.map((p) => p.category))]);
+      })
+      .catch(() => {});
+    fetch("/api/settings")
+      .then((r) => r.json())
+      .then((res) => {
+        if (res.success && res.data.general?.storeName) {
+          setBrand({
+            storeName: res.data.general.storeName,
+            storeLogo: res.data.general.storeLogo || "",
+            headerAnnouncement: res.data.general.headerAnnouncement || "",
+          });
+        }
       })
       .catch(() => {});
   }, []);
@@ -110,17 +126,32 @@ export default function Header() {
   const itemCls =
     "block px-3 py-2 text-sm text-zinc-200 rounded hover:bg-white/5 hover:text-accent";
 
+  const [brandFirst, ...brandRest] = brand.storeName.split(" ");
+
   return (
     <header className="bg-primary text-white sticky top-0 z-50 shadow-card">
       {openMenu && (
         <div className="fixed inset-0 z-40" onClick={() => setOpenMenu(null)} />
       )}
 
+      {brand.headerAnnouncement && (
+        <div className="bg-accent text-primary text-center text-xs font-bold py-1.5 px-4">
+          {brand.headerAnnouncement}
+        </div>
+      )}
+
       <div className="max-w-7xl mx-auto px-4">
         {/* Row 1: logo, delivery, search, language, account, cart */}
         <div className="relative z-50 flex items-center gap-3 sm:gap-4 py-3">
-          <Link href="/" className="text-xl font-extrabold tracking-tight whitespace-nowrap">
-            sumon<span className="text-accent">mart</span>
+          <Link href="/" className="flex items-center gap-2 text-xl font-extrabold tracking-tight whitespace-nowrap">
+            {brand.storeLogo ? (
+              <img src={brand.storeLogo} alt={brand.storeName} className="h-8 w-auto object-contain" />
+            ) : (
+              <>
+                {brandFirst}
+                {brandRest.length > 0 && <span className="text-accent">{brandRest.join(" ")}</span>}
+              </>
+            )}
           </Link>
 
           <button className="hidden lg:flex flex-col text-xs leading-tight p-1 rounded border border-transparent hover:border-white/40">

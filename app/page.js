@@ -2,10 +2,53 @@
 import Link from "next/link";
 import connectDB from "@/lib/db";
 import Product from "@/models/Product";
+import Category from "@/models/Category";
+import Settings from "@/models/Settings";
 import HeroSlider from "@/components/ui/HeroSlider";
 import ProductGrid from "@/components/product/ProductGrid";
 import RecommendedGrid from "@/components/product/RecommendedGrid";
 import { getEffectivePrice } from "@/lib/utils";
+
+// Resolves one admin-configured homepage section (Settings → General →
+// Homepage Sections) into { title, buttonText, buttonLink, products }.
+// Falls back gracefully (empty products) if the configured source no
+// longer matches anything, so a stale admin config never crashes the page.
+async function resolveSection(section, products) {
+  let items = [];
+  switch (section.type) {
+    case "topSelling":
+      items = [...products].sort((a, b) => b.numReviews - a.numReviews).slice(0, 8);
+      break;
+    case "deals":
+      items = products.filter((p) => p.discountPrice > 0).slice(0, 8);
+      break;
+    case "underPrice":
+      items = products.filter((p) => getEffectivePrice(p) <= (section.maxPrice || 0)).slice(0, 8);
+      break;
+    case "category": {
+      if (section.categoryId) {
+        const cat = await Category.findById(section.categoryId).lean().catch(() => null);
+        if (cat) items = products.filter((p) => p.category?.toLowerCase() === cat.name.toLowerCase()).slice(0, 8);
+      }
+      break;
+    }
+    case "manual": {
+      const ids = (section.productIds || []).map(String);
+      const byId = new Map(products.map((p) => [String(p._id), p]));
+      items = ids.map((id) => byId.get(id)).filter(Boolean);
+      break;
+    }
+    case "newArrivals":
+    default:
+      items = products.slice(0, 8);
+  }
+  return {
+    title: section.title,
+    buttonText: section.buttonText || "See all",
+    buttonLink: section.buttonLink || "/products",
+    products: items,
+  };
+}
 
 export const dynamic = "force-dynamic";
 
@@ -37,6 +80,13 @@ export default async function HomePage() {
   const raw = await Product.find().sort({ createdAt: -1 }).limit(60).lean();
   const products = JSON.parse(JSON.stringify(raw));
 
+  const settingsDoc = await Settings.findOne().lean().catch(() => null);
+  const homepage = settingsDoc?.homepage || {};
+  const heroSlides = homepage.heroSlides || [];
+  const activeBanners = (homepage.banners || []).filter((b) => b.active !== false).sort((a, b) => a.order - b.order);
+  const visibleSections = (homepage.sections || []).filter((s) => s.visible !== false).sort((a, b) => a.order - b.order);
+  const customSections = await Promise.all(visibleSections.map((s) => resolveSection(s, products)));
+
   const sliderProducts = [...products].sort((a, b) => b.ratingAvg - a.ratingAvg).slice(0, 4);
   const deals = products.filter((p) => p.discountPrice > 0).slice(0, 4);
   const under100 = products.filter((p) => getEffectivePrice(p) <= 100).slice(0, 4);
@@ -54,7 +104,26 @@ export default async function HomePage() {
   return (
     <div className="bg-primary min-h-screen">
       <div className="max-w-7xl mx-auto px-4 py-6 space-y-10">
-        <HeroSlider products={sliderProducts} />
+        <HeroSlider products={sliderProducts} customSlides={heroSlides} />
+
+        {activeBanners.length > 0 && (
+          <div className="grid sm:grid-cols-2 gap-4">
+            {activeBanners.map((b) => (
+              <Link
+                key={b._id}
+                href={b.link || "/products"}
+                className="relative rounded-xl overflow-hidden border border-white/10 aspect-[3/1] bg-primary-light group"
+              >
+                {b.image && (
+                  <img src={b.image} alt={b.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                )}
+                {b.title && (
+                  <span className="absolute bottom-3 left-4 text-white font-extrabold text-lg drop-shadow-lg">{b.title}</span>
+                )}
+              </Link>
+            ))}
+          </div>
+        )}
 
         {/* perks strip */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -112,15 +181,26 @@ export default async function HomePage() {
 
         <RecommendedGrid />
 
-        <section>
-          <SectionTitle title="Top selling products" href="/products?sort=top" />
-          <ProductGrid products={topSelling} />
-        </section>
+        {customSections.length > 0 ? (
+          customSections.map((sec, i) => (
+            <section key={i}>
+              <SectionTitle title={sec.title} href={sec.buttonLink} label={sec.buttonText} />
+              <ProductGrid products={sec.products} />
+            </section>
+          ))
+        ) : (
+          <>
+            <section>
+              <SectionTitle title="Top selling products" href="/products?sort=top" />
+              <ProductGrid products={topSelling} />
+            </section>
 
-        <section>
-          <SectionTitle title="New products" href="/products?sort=new" />
-          <ProductGrid products={newArrivals} />
-        </section>
+            <section>
+              <SectionTitle title="New products" href="/products?sort=new" />
+              <ProductGrid products={newArrivals} />
+            </section>
+          </>
+        )}
       </div>
     </div>
   );

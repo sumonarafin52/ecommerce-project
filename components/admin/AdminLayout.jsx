@@ -27,6 +27,7 @@ const icons = {
   down: "M19 9l-7 7-7-7",
   external: "M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14",
   bolt: "M13 10V3L4 14h7v7l9-11h-7z",
+  settings: "M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065zM15 12a3 3 0 11-6 0 3 3 0 016 0z",
 };
 
 export default function AdminLayout({ children }) {
@@ -36,7 +37,9 @@ export default function AdminLayout({ children }) {
 
   const [open, setOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
-  const [prodOpen, setProdOpen] = useState(false);
+  // generic open/close state for any sidebar group with children
+  // (Products, Settings, and any future grouped nav item)
+  const [openGroups, setOpenGroups] = useState({});
   const [orderCount, setOrderCount] = useState(0);
   const [pendingCount, setPendingCount] = useState(0);
 
@@ -53,16 +56,6 @@ export default function AdminLayout({ children }) {
       })
       .catch(() => {});
   }, [session, pathname]);
-
-  useEffect(() => {
-    if (
-      pathname.startsWith("/admin/products") ||
-      pathname.startsWith("/admin/categories") ||
-      pathname.startsWith("/admin/digital")
-    ) {
-      setProdOpen(true);
-    }
-  }, [pathname]);
 
   const isActive = (href) => (href === "/admin" ? pathname === "/admin" : pathname.startsWith(href));
 
@@ -83,12 +76,29 @@ export default function AdminLayout({ children }) {
     { href: "/admin/customers", label: "Customers", icon: icons.customers, perm: "customers" },
     { href: "/admin/reports", label: "Reports", icon: icons.reports, perm: "reports" },
     { href: "/admin/discounts", label: "Discounts", icon: icons.discounts, perm: "discounts" },
+    {
+      key: "settings",
+      label: "Settings",
+      icon: icons.settings,
+      perm: "settings",
+      children: [
+        { href: "/admin/settings/general", label: "General" },
+        { href: "/admin/settings/payment", label: "Payment Methods" },
+        { href: "/admin/settings/billing", label: "Billing" },
+        { href: "/admin/settings/shipping", label: "Shipping" },
+      ],
+    },
   ].filter((item) => can(item.perm));
 
-  const productsActive =
-    pathname.startsWith("/admin/products") ||
-    pathname.startsWith("/admin/categories") ||
-    pathname.startsWith("/admin/digital");
+  // a group is "active" when the current path matches its own href or any child href
+  const isGroupActive = (item) =>
+    item.children?.some((c) => pathname.startsWith(c.href)) || false;
+
+  useEffect(() => {
+    const activeGroup = nav.find((item) => item.children && isGroupActive(item));
+    if (activeGroup) setOpenGroups((g) => ({ ...g, [activeGroup.key]: true }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathname]);
 
   const sidebar = (
     <>
@@ -118,11 +128,11 @@ export default function AdminLayout({ children }) {
                   <div key={item.key}>
                     {collapsed ? (
                       <Link
-                        href="/admin/products"
+                        href={item.children[0].href}
                         onClick={() => setOpen(false)}
                         title={item.label}
                         className={`relative flex items-center justify-center rounded-lg px-0 py-2.5 text-sm font-bold transition-all ${
-                          productsActive ? "bg-accent/10 text-accent" : "admin-text-secondary hover:bg-gray-100"
+                          isGroupActive(item) ? "bg-accent/10 text-accent" : "admin-text-secondary hover:bg-gray-100"
                         }`}
                       >
                         <Icon d={item.icon} />
@@ -130,17 +140,17 @@ export default function AdminLayout({ children }) {
                     ) : (
                       <>
                         <button
-                          onClick={() => setProdOpen((s) => !s)}
+                          onClick={() => setOpenGroups((g) => ({ ...g, [item.key]: !g[item.key] }))}
                           className={`relative w-full flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-bold transition-all ${
-                            productsActive ? "bg-accent/10 text-accent" : "admin-text-secondary hover:bg-gray-100"
+                            isGroupActive(item) ? "bg-accent/10 text-accent" : "admin-text-secondary hover:bg-gray-100"
                           }`}
                         >
-                          {productsActive && <span className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-accent rounded-r-full" />}
+                          {isGroupActive(item) && <span className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-accent rounded-r-full" />}
                           <Icon d={item.icon} />
                           <span className="flex-1 text-left">{item.label}</span>
-                          <Icon d={icons.down} className={`w-4 h-4 transition-transform ${prodOpen ? "rotate-180" : ""}`} />
+                          <Icon d={icons.down} className={`w-4 h-4 transition-transform ${openGroups[item.key] ? "rotate-180" : ""}`} />
                         </button>
-                        {prodOpen && (
+                        {openGroups[item.key] && (
                           <div className="ml-5 mt-1 space-y-0.5 border-l border-gray-200 pl-3">
                             {item.children.map((c) => (
                               <Link

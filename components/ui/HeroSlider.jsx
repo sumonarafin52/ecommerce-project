@@ -5,28 +5,45 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { formatCurrency } from "@/lib/utils";
 
-export default function HeroSlider({ products = [] }) {
-  const slides = [
-    {
-      tag: "Welcome to Sumon Mart",
-      title: "Everything you love, delivered fast",
-      subtitle: "Free home delivery on your first order",
-      cta: "Start Shopping",
-      href: "/products",
-      image: null,
-    },
-    ...products.slice(0, 4).map((p) => ({
-      tag: p.category,
-      title: p.name,
-      subtitle:
-        p.discountPrice > 0
-          ? `Now ${formatCurrency(p.discountPrice)} — was ${formatCurrency(p.price)}`
-          : formatCurrency(p.price),
-      cta: "Shop Now",
-      href: `/products/${p._id}`,
-      image: p.images?.[0] || null,
-    })),
-  ];
+// customSlides: admin-configured slides from Settings → Homepage → Hero Slider
+// (shape: { tag, title, subtitle, buttonText, buttonLink, image, active }).
+// When provided and non-empty, these take over completely; otherwise the
+// original auto-generated behavior (unchanged) is used so nothing breaks
+// for stores that haven't configured anything yet.
+export default function HeroSlider({ products = [], customSlides = [] }) {
+  const activeCustom = customSlides.filter((s) => s.active !== false);
+
+  const slides =
+    activeCustom.length > 0
+      ? activeCustom.map((s) => ({
+          tag: s.tag || "",
+          title: s.title || "",
+          subtitle: s.subtitle || "",
+          cta: s.buttonText || "Shop Now",
+          href: s.buttonLink || "/products",
+          image: s.image || null,
+        }))
+      : [
+          {
+            tag: "Welcome to Sumon Mart",
+            title: "Everything you love, delivered fast",
+            subtitle: "Free home delivery on your first order",
+            cta: "Start Shopping",
+            href: "/products",
+            image: null,
+          },
+          ...products.slice(0, 4).map((p) => ({
+            tag: p.category,
+            title: p.name,
+            subtitle:
+              p.discountPrice > 0
+                ? `Now ${formatCurrency(p.discountPrice)} — was ${formatCurrency(p.price)}`
+                : formatCurrency(p.price),
+            cta: "Shop Now",
+            href: `/products/${p._id}`,
+            image: p.images?.[0] || null,
+          })),
+        ];
 
   const [index, setIndex] = useState(0);
   const [paused, setPaused] = useState(false);

@@ -1,7 +1,7 @@
 // components/layout/Footer.jsx
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 
 const linkCls = "block text-sm text-zinc-400 hover:text-accent transition-colors py-1";
@@ -9,6 +9,32 @@ const linkCls = "block text-sm text-zinc-400 hover:text-accent transition-colors
 export default function Footer() {
   const [email, setEmail] = useState("");
   const [subscribed, setSubscribed] = useState(false);
+  // falls back to the original hardcoded copy until Settings → General is
+  // configured, so nothing changes visually for stores that haven't set
+  // custom footer text yet
+  const [brand, setBrand] = useState({
+    storeName: "sumon mart",
+    storeLogo: "",
+    footerAbout: "",
+    footerCopyright: "© 2026 Sumon Mart — Made in Bangladesh",
+  });
+
+  useEffect(() => {
+    fetch("/api/settings")
+      .then((r) => r.json())
+      .then((res) => {
+        if (res.success && res.data.general) {
+          const g = res.data.general;
+          setBrand((b) => ({
+            storeName: g.storeName || b.storeName,
+            storeLogo: g.storeLogo || "",
+            footerAbout: g.footerAbout || "",
+            footerCopyright: g.footerCopyright || b.footerCopyright,
+          }));
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   const subscribe = (e) => {
     e.preventDefault();
@@ -16,6 +42,8 @@ export default function Footer() {
     setSubscribed(true);
     setEmail("");
   };
+
+  const [brandFirst, ...brandRest] = brand.storeName.split(" ");
 
   return (
     <footer className="mt-12">
@@ -49,6 +77,7 @@ export default function Footer() {
             <a href="mailto:support@sumonmart.com" className={linkCls}>support@sumonmart.com</a>
             <a href="tel:+8801700000000" className={linkCls}>+880 1700-000000</a>
             <p className={linkCls}>Sat–Thu, 9am–9pm</p>
+            {brand.footerAbout && <p className="text-xs text-zinc-500 mt-2 leading-relaxed">{brand.footerAbout}</p>}
           </div>
 
           <div>
@@ -75,8 +104,15 @@ export default function Footer() {
 
         <div className="border-t border-white/10">
           <div className="max-w-7xl mx-auto px-4 py-5 flex flex-col sm:flex-row items-center justify-between gap-4">
-            <Link href="/" className="text-lg font-extrabold">
-              sumon<span className="text-accent">mart</span>
+            <Link href="/" className="flex items-center gap-2 text-lg font-extrabold">
+              {brand.storeLogo ? (
+                <img src={brand.storeLogo} alt={brand.storeName} className="h-7 w-auto object-contain" />
+              ) : (
+                <>
+                  {brandFirst}
+                  {brandRest.length > 0 && <span className="text-accent">{brandRest.join(" ")}</span>}
+                </>
+              )}
             </Link>
             <div className="flex flex-wrap items-center justify-center gap-2 text-[11px] font-bold text-zinc-300">
               {["bKash", "Nagad", "VISA", "Mastercard", "SSLCommerz"].map((p) => (
@@ -85,7 +121,7 @@ export default function Footer() {
                 </span>
               ))}
             </div>
-            <p className="text-xs text-zinc-500">© 2026 Sumon Mart — Made in Bangladesh</p>
+            <p className="text-xs text-zinc-500">{brand.footerCopyright}</p>
           </div>
         </div>
       </div>
