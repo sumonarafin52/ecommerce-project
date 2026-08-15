@@ -3,15 +3,23 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import connectDB from "@/lib/db";
 import User from "@/models/User";
+import { hasPermission, STAFF_ROLES } from "@/lib/rbac";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 
-// ADMIN: single customer details
+// Staff (e.g. "Customer Support") who only have the "customers" permission
+// can view/edit a customer's name & email, but must NOT be able to change
+// role — that's a privilege-escalation path (a support agent could otherwise
+// promote themselves or anyone else to admin). Role changes require the
+// separate "roles" permission, same gate used by /api/roles.
+const ASSIGNABLE_ROLES = ["customer", ...STAFF_ROLES];
+
+// Staff with "customers" permission: single user details
 export async function GET(request, { params }) {
   try {
     await connectDB();
     const session = await getServerSession(authOptions);
-    if (!session || session.user?.role !== "admin") {
-      return NextResponse.json({ success: false, message: "Admin access required" }, { status: 401 });
+    if (!session?.user || !(await hasPermission(session, "customers"))) {
+      return NextResponse.json({ success: false, message: "No permission" }, { status: 403 });
     }
 
     const user = await User.findById(params.id).select("name email role createdAt");
@@ -24,13 +32,14 @@ export async function GET(request, { params }) {
   }
 }
 
-// ADMIN: edit customer (name, email, role)
+// Staff with "customers" permission: edit name/email.
+// Changing `role` additionally requires the "roles" permission.
 export async function PUT(request, { params }) {
   try {
     await connectDB();
     const session = await getServerSession(authOptions);
-    if (!session || session.user?.role !== "admin") {
-      return NextResponse.json({ success: false, message: "Admin access required" }, { status: 401 });
+    if (!session?.user || !(await hasPermission(session, "customers"))) {
+      return NextResponse.json({ success: false, message: "No permission" }, { status: 403 });
     }
 
     const { name, email, role } = await request.json();
@@ -46,7 +55,20 @@ export async function PUT(request, { params }) {
     const update = {};
     if (name) update.name = name;
     if (email) update.email = email;
-    if (role && ["customer", "admin"].includes(role)) update.role = role;
+    if (role) {
+      if (!ASSIGNABLE_ROLES.includes(role)) {
+        return NextResponse.json({ success: false, message: "Invalid role" }, { status: 400 });
+      }
+      if (!(await hasPermission(session, "roles"))) {
+        return NextResponse.json(
+          { success: false, message: "You do not have permission to change roles" },
+          { status: 403 }
+        );
+      }
+      // an admin can't be demoted this way accidentally by another admin
+      // removing their own access — keep it simple and explicit instead
+      update.role = role;
+    }
 
     const user = await User.findByIdAndUpdate(params.id, update, { new: true }).select("name email role createdAt");
     if (!user) {
@@ -58,13 +80,15 @@ export async function PUT(request, { params }) {
   }
 }
 
-// ADMIN: delete customer
+// Deleting an account is destructive — keep this gated behind "roles" (the
+// same admin-level permission that controls staff access) rather than the
+// broader "customers" permission that ordinary support agents also hold.
 export async function DELETE(request, { params }) {
   try {
     await connectDB();
     const session = await getServerSession(authOptions);
-    if (!session || session.user?.role !== "admin") {
-      return NextResponse.json({ success: false, message: "Admin access required" }, { status: 401 });
+    if (!session?.user || !(await hasPermission(session, "roles"))) {
+      return NextResponse.json({ success: false, message: "No permission" }, { status: 403 });
     }
 
     // nijeke delete kora jabe na

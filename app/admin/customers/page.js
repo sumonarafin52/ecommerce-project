@@ -337,14 +337,23 @@ export default function AdminCustomersPage() {
             </div>
             <div>
               <label className="block text-xs text-zinc-400 mb-1">Role</label>
-              <select className={`${inputCls} w-full`} value={edit.role} onChange={(e) => setEdit((f) => ({ ...f, role: e.target.value }))}>
+              <select
+                className={`${inputCls} w-full disabled:opacity-50 disabled:cursor-not-allowed`}
+                value={edit.role}
+                disabled={!can("roles")}
+                onChange={(e) => setEdit((f) => ({ ...f, role: e.target.value }))}
+              >
                 {ROLE_OPTIONS.map((r) => (
                   <option key={r.value} value={r.value} className="bg-primary">
                     {r.label}
                   </option>
                 ))}
               </select>
-              <p className="text-[11px] text-zinc-500 mt-1">{ROLE_OPTIONS.find((r) => r.value === edit.role)?.desc}</p>
+              <p className="text-[11px] text-zinc-500 mt-1">
+                {can("roles")
+                  ? ROLE_OPTIONS.find((r) => r.value === edit.role)?.desc
+                  : "You don't have permission to change roles."}
+              </p>
 
               {selectedRoleInfo && (
                 <div className="flex flex-wrap gap-1 mt-2">

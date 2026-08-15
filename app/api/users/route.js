@@ -5,6 +5,7 @@ import bcrypt from "bcryptjs";
 import connectDB from "@/lib/db";
 import User from "@/models/User";
 import { rateLimit, getClientIp } from "@/lib/rateLimit";
+import { hasPermission } from "@/lib/rbac";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 
 export async function POST(request) {
@@ -50,13 +51,14 @@ export async function POST(request) {
   }
 }
 
-// ADMIN: customer list (create order modal er jonno)
+// Staff with "customers" permission (e.g. Support role): customer list
+// (also used by the admin "create order" modal's customer picker)
 export async function GET() {
   try {
     await connectDB();
     const session = await getServerSession(authOptions);
-    if (!session || session.user?.role !== "admin") {
-      return NextResponse.json({ success: false, message: "Admin access required" }, { status: 401 });
+    if (!session?.user || !(await hasPermission(session, "customers"))) {
+      return NextResponse.json({ success: false, message: "No permission" }, { status: 403 });
     }
 
     const users = await User.find()
