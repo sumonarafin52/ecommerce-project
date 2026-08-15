@@ -161,6 +161,7 @@ export async function POST(request) {
       subcategory: body.subcategory || "",
       brand: body.brand || "",
             sku: (body.sku || "").trim() || (await generateSku()),
+      weight: Number(body.weight) || 0,
       tags: Array.isArray(body.tags) ? body.tags : [],
       price: Number(body.price),
       discountPrice: Number(body.discountPrice) || 0,

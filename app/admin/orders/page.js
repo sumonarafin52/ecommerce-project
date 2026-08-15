@@ -16,6 +16,149 @@ const inputCls =
 
 const badge = (color) => `px-2.5 py-1 rounded-full text-[11px] font-bold capitalize ${color}`;
 
+const SHIPMENT_STATUSES = ["confirmed", "processing", "shipped", "in_transit", "out_for_delivery", "delivered", "failed", "returned"];
+
+function ShipmentPanel({ orderId }) {
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [shipment, setShipment] = useState(null);
+  const [carriers, setCarriers] = useState([]);
+  const [methods, setMethods] = useState([]);
+  const [eventStatus, setEventStatus] = useState("shipped");
+  const [eventNote, setEventNote] = useState("");
+  const [eventLocation, setEventLocation] = useState("");
+
+  const load = () => {
+    setLoading(true);
+    Promise.all([
+      fetch(`/api/orders/${orderId}/shipment`).then((r) => r.json()),
+      fetch("/api/shipping/carriers").then((r) => r.json()),
+      fetch("/api/shipping/methods").then((r) => r.json()),
+    ]).then(([s, c, m]) => {
+      if (s.success) setShipment(s.data.shipment);
+      if (c.success) setCarriers(c.data);
+      if (m.success) setMethods(m.data);
+    }).finally(() => setLoading(false));
+  };
+  useEffect(load, [orderId]);
+
+  const saveFields = async () => {
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/orders/${orderId}/shipment`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          carrier: shipment.carrier?._id || shipment.carrier || "",
+          method: shipment.method?._id || shipment.method || "",
+          trackingNumber: shipment.trackingNumber || "",
+          estimatedDelivery: shipment.estimatedDelivery || "",
+          notes: shipment.notes || "",
+        }),
+      }).then((r) => r.json());
+      if (res.success) setShipment(res.data.shipment);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const addEvent = async () => {
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/orders/${orderId}/shipment`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ addEvent: { status: eventStatus, note: eventNote, location: eventLocation } }),
+      }).then((r) => r.json());
+      if (res.success) {
+        setShipment(res.data.shipment);
+        setEventNote("");
+        setEventLocation("");
+      }
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading || !shipment) {
+    return <p className="text-xs text-zinc-500">Loading shipment...</p>;
+  }
+
+  const carrierId = shipment.carrier?._id || shipment.carrier || "";
+  const methodId = shipment.method?._id || shipment.method || "";
+  const trackUrl = shipment.carrier?.trackingUrlTemplate && shipment.trackingNumber
+    ? shipment.carrier.trackingUrlTemplate.replace("{tracking_number}", shipment.trackingNumber)
+    : null;
+
+  return (
+    <div className="space-y-3 bg-black/20 rounded-md p-3 border border-white/5">
+      <p className="text-xs font-bold text-zinc-400 uppercase tracking-wide">Shipping</p>
+
+      <div className="grid grid-cols-2 gap-2">
+        <select className={selectCls} value={carrierId} onChange={(e) => setShipment({ ...shipment, carrier: e.target.value })}>
+          <option value="" className="bg-primary">No carrier</option>
+          {carriers.map((c) => <option key={c._id} value={c._id} className="bg-primary">{c.name}</option>)}
+        </select>
+        <select className={selectCls} value={methodId} onChange={(e) => setShipment({ ...shipment, method: e.target.value })}>
+          <option value="" className="bg-primary">No method</option>
+          {methods.map((m) => <option key={m._id} value={m._id} className="bg-primary">{m.name}</option>)}
+        </select>
+        <input
+          className={inputCls}
+          placeholder="Tracking number"
+          value={shipment.trackingNumber || ""}
+          onChange={(e) => setShipment({ ...shipment, trackingNumber: e.target.value })}
+        />
+        <input
+          type="date"
+          className={inputCls}
+          value={shipment.estimatedDelivery ? String(shipment.estimatedDelivery).slice(0, 10) : ""}
+          onChange={(e) => setShipment({ ...shipment, estimatedDelivery: e.target.value })}
+        />
+      </div>
+      {trackUrl && (
+        <a href={trackUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-accent hover:underline font-bold">
+          Track on carrier site ↗
+        </a>
+      )}
+      <button type="button" onClick={saveFields} disabled={saving} className="text-xs font-bold text-accent hover:underline disabled:opacity-50">
+        {saving ? "Saving..." : "Save shipping details"}
+      </button>
+
+      {shipment.timeline?.length > 0 && (
+        <div className="space-y-1.5 pt-2 border-t border-white/10">
+          {shipment.timeline.slice().reverse().map((ev, i) => (
+            <div key={i} className="text-xs text-zinc-300 flex gap-2">
+              <span className="font-bold capitalize text-white shrink-0">{ev.status.replace(/_/g, " ")}</span>
+              <span className="text-zinc-500">{formatDate(ev.at)}{ev.location ? ` · ${ev.location}` : ""}</span>
+              {ev.note && <span className="text-zinc-400">— {ev.note}</span>}
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="pt-2 border-t border-white/10 space-y-2">
+        <p className="text-[11px] font-bold text-zinc-500 uppercase">Add tracking update</p>
+        <div className="grid grid-cols-2 gap-2">
+          <select className={selectCls} value={eventStatus} onChange={(e) => setEventStatus(e.target.value)}>
+            {SHIPMENT_STATUSES.map((s) => <option key={s} value={s} className="bg-primary capitalize">{s.replace(/_/g, " ")}</option>)}
+          </select>
+          <input className={inputCls} placeholder="Location (optional)" value={eventLocation} onChange={(e) => setEventLocation(e.target.value)} />
+        </div>
+        <input className={`${inputCls} w-full`} placeholder="Note (optional)" value={eventNote} onChange={(e) => setEventNote(e.target.value)} />
+        <button
+          type="button"
+          onClick={addEvent}
+          disabled={saving}
+          className="bg-accent/20 hover:bg-accent/30 text-accent text-xs font-bold px-3 py-2 rounded-md transition-colors disabled:opacity-50"
+        >
+          + Add Update
+        </button>
+      </div>
+    </div>
+  );
+}
+
 const payColors = {
   paid: "bg-green-500/15 text-green-400",
   pending: "bg-accent/15 text-accent",
@@ -464,7 +607,17 @@ export default function AdminOrdersPage() {
           <form onSubmit={saveStatus} className="w-full max-w-lg bg-primary-light border border-white/10 rounded-xl p-6 space-y-4 my-8">
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-bold text-white">Order #{(selected._id || "").slice(-6).toUpperCase()}</h2>
-              <button type="button" onClick={() => setSelected(null)} className="text-zinc-400 hover:text-white text-lg" aria-label="Close">✕</button>
+              <div className="flex items-center gap-3">
+                <a
+                  href={`/invoice/${selected._id}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-accent hover:underline font-bold text-xs"
+                >
+                  View Invoice
+                </a>
+                <button type="button" onClick={() => setSelected(null)} className="text-zinc-400 hover:text-white text-lg" aria-label="Close">✕</button>
+              </div>
             </div>
 
             <div className="space-y-1 text-sm text-zinc-300 bg-black/20 rounded-md p-3 border border-white/5">
@@ -481,6 +634,8 @@ export default function AdminOrdersPage() {
                 COD order — customer product receive korle paymentStatus "paid" kore din.
               </p>
             )}
+
+            <ShipmentPanel orderId={selected._id} />
 
             <div className="space-y-2 max-h-40 overflow-y-auto no-scrollbar bg-black/20 rounded-md p-3 border border-white/5">
               {(selected.items || []).map((it, i) => (
@@ -507,7 +662,9 @@ export default function AdminOrdersPage() {
             </div>
 
             <div className="flex justify-between items-center pt-2 border-t border-white/10">
-              <span className="text-sm text-zinc-400">Total</span>
+              <span className="text-sm text-zinc-400">
+                Total {selected.shippingCost > 0 && <span className="text-[11px]">(incl. {formatCurrency(selected.shippingCost)} shipping{selected.shippingMethodName ? ` · ${selected.shippingMethodName}` : ""})</span>}
+              </span>
               <span className="text-xl font-extrabold text-accent">{formatCurrency(selected.totalAmount)}</span>
             </div>
 

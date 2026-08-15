@@ -6,6 +6,7 @@ import Order from "@/models/Order";
 import Product from "@/models/Product";
 import User from "@/models/User";
 import Discount from "@/models/Discount";
+import ShippingMethod from "@/models/ShippingMethod";
 import { getEffectivePrice } from "@/lib/utils";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 
@@ -46,7 +47,7 @@ export async function POST(request) {
     }
 
     const isAdmin = session.user.role === "admin";
-    const { items, shippingAddress, paymentMethod, userId, paymentStatus, discountCode } = await request.json();
+    const { items, shippingAddress, paymentMethod, userId, paymentStatus, discountCode, shippingMethodId } = await request.json();
 
     // ADMIN: customer er jonno order create
     let targetUserId = session.user.id;
@@ -95,6 +96,7 @@ export async function POST(request) {
     let baseAmount = 0;
     const orderItems = [];
     const categoryMap = new Map();
+    const weightMap = new Map();
     for (const item of items) {
       if (!item.product || !item.quantity) {
         return NextResponse.json({ success: false, message: "Invalid item format" }, { status: 400 });
@@ -114,7 +116,8 @@ export async function POST(request) {
       const price = getEffectivePrice(product);
       baseAmount += price * item.quantity;
       categoryMap.set(String(product._id), product.category);
-      orderItems.push({ product: product._id, name: product.name, quantity: item.quantity, price });
+      weightMap.set(String(product._id), product.weight || 0);
+      orderItems.push({ product: product._id, name: product.name, sku: product.sku || "", quantity: item.quantity, price });
     }
 
     // ===== COUPON CALCULATION (server-side, tamper-proof) =====
@@ -163,7 +166,32 @@ export async function POST(request) {
       discountDoc = d;
     }
 
-    const totalAmount = Math.max(0, baseAmount - discountAmount);
+    const totalAmountBeforeShipping = Math.max(0, baseAmount - discountAmount);
+
+    // ===== SHIPPING (server-side, tamper-proof — never trust a client price) =====
+    let shippingCost = 0;
+    let shippingMethodDoc = null;
+    if (shippingMethodId) {
+      shippingMethodDoc = await ShippingMethod.findById(shippingMethodId).populate("carrier");
+      if (!shippingMethodDoc || !shippingMethodDoc.active) {
+        return NextResponse.json({ success: false, message: "Selected shipping method is no longer available" }, { status: 400 });
+      }
+      if (finalPaymentMethod === "cod" && !shippingMethodDoc.codAllowed) {
+        return NextResponse.json({ success: false, message: "Selected shipping method doesn't support Cash on Delivery" }, { status: 400 });
+      }
+      if (shippingMethodDoc.freeShippingThreshold > 0 && totalAmountBeforeShipping >= shippingMethodDoc.freeShippingThreshold) {
+        shippingCost = 0;
+      } else if (shippingMethodDoc.rateType === "weightBased" && shippingMethodDoc.weightTiers?.length) {
+        const totalWeight = orderItems.reduce((sum, it) => sum + (weightMap.get(String(it.product)) || 0) * it.quantity, 0);
+        const sorted = [...shippingMethodDoc.weightTiers].sort((a, b) => a.maxWeightKg - b.maxWeightKg);
+        const tier = sorted.find((t) => totalWeight <= t.maxWeightKg);
+        shippingCost = tier ? tier.rate : sorted[sorted.length - 1].rate;
+      } else {
+        shippingCost = shippingMethodDoc.flatRate || 0;
+      }
+    }
+
+    const totalAmount = totalAmountBeforeShipping + shippingCost;
     if (finalPaymentMethod === "sslcommerz" && totalAmount <= 0) {
       return NextResponse.json({ success: false, message: "Order amount must be positive for online payment" }, { status: 400 });
     }
@@ -197,9 +225,15 @@ export async function POST(request) {
       existing.baseAmount = baseAmount;
       existing.discountCode = appliedCode;
       existing.discountAmount = discountAmount;
+      existing.shippingCost = shippingCost;
+      existing.shippingMethodName = shippingMethodDoc?.name || "";
       existing.totalAmount = totalAmount;
       existing.shippingAddress = address;
       existing.paymentMethod = finalPaymentMethod;
+      if (shippingMethodDoc) {
+        existing.shipment.method = shippingMethodDoc._id;
+        existing.shipment.carrier = shippingMethodDoc.carrier?._id || null;
+      }
       await existing.save();
       return NextResponse.json({ success: true, data: existing });
     }
@@ -218,9 +252,14 @@ export async function POST(request) {
       baseAmount,
       discountCode: appliedCode,
       discountAmount,
+      shippingCost,
+      shippingMethodName: shippingMethodDoc?.name || "",
       totalAmount,
       paymentStatus: isAdmin && paymentStatus ? paymentStatus : "pending",
       orderStatus: "processing",
+      shipment: shippingMethodDoc
+        ? { method: shippingMethodDoc._id, carrier: shippingMethodDoc.carrier?._id || null }
+        : undefined,
     });
 
     return NextResponse.json({ success: true, data: order }, { status: 201 });

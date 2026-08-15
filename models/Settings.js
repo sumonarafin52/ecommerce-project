@@ -81,9 +81,40 @@ const settingsSchema = new mongoose.Schema(
     // shape, and this namespace was reserved (not created) in Phase 1
     // specifically so it could be filled in here without a migration.
     payment: { type: mongoose.Schema.Types.Mixed, default: {} },
-    // billing/shipping: reserved for the next phases — same reasoning.
-    billing: { type: mongoose.Schema.Types.Mixed, default: {} },
+    // shipping: reserved for the next phase — same reasoning.
     shipping: { type: mongoose.Schema.Types.Mixed, default: {} },
+    billing: {
+      // Store Billing Information (Settings → Billing → Business Info)
+      legalName: { type: String, default: "" },
+      billingAddress: { type: String, default: "" },
+      country: { type: String, default: "Bangladesh" },
+      state: { type: String, default: "" },
+      city: { type: String, default: "" },
+      postalCode: { type: String, default: "" },
+      phone: { type: String, default: "" },
+      email: { type: String, default: "" },
+      taxId: { type: String, default: "" }, // Tax/VAT/BIN
+      registrationInfo: { type: String, default: "" },
+      additionalInfo: { type: String, default: "" },
+      // Invoice Settings
+      invoice: {
+        logo: { type: String, default: "" },
+        businessName: { type: String, default: "" },
+        address: { type: String, default: "" },
+        contactInfo: { type: String, default: "" },
+        numberPrefix: { type: String, default: "INV-" },
+        numberPadding: { type: Number, default: 5 }, // INV-00001
+        dateFormat: { type: String, default: "DD MMM YYYY" },
+        currency: { type: String, default: "BDT" },
+        taxInfo: { type: String, default: "" },
+        footerText: { type: String, default: "Thank you for your business." },
+        additionalNotes: { type: String, default: "" },
+        paymentInfo: { type: String, default: "" },
+      },
+      // running counter for invoice numbering — incremented atomically
+      // (see lib/invoice.js) so two invoices generated at once never collide
+      nextInvoiceNumber: { type: Number, default: 1 },
+    },
   },
   { timestamps: true }
 );

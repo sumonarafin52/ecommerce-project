@@ -17,6 +17,7 @@ export default function Footer() {
     storeLogo: "",
     footerAbout: "",
     footerCopyright: "© 2026 Sumon Mart — Made in Bangladesh",
+    socialLinks: {},
   });
 
   useEffect(() => {
@@ -30,6 +31,7 @@ export default function Footer() {
             storeLogo: g.storeLogo || "",
             footerAbout: g.footerAbout || "",
             footerCopyright: g.footerCopyright || b.footerCopyright,
+            socialLinks: g.socialLinks || {},
           }));
         }
       })
@@ -74,6 +76,7 @@ export default function Footer() {
 
           <div>
             <h3 className="font-bold mb-3">Customer Service</h3>
+            <Link href="/track" className={linkCls}>Track Your Order</Link>
             <a href="mailto:support@sumonmart.com" className={linkCls}>support@sumonmart.com</a>
             <a href="tel:+8801700000000" className={linkCls}>+880 1700-000000</a>
             <p className={linkCls}>Sat–Thu, 9am–9pm</p>
@@ -114,6 +117,22 @@ export default function Footer() {
                 </>
               )}
             </Link>
+            {(brand.socialLinks?.facebook || brand.socialLinks?.instagram || brand.socialLinks?.youtube || brand.socialLinks?.whatsapp) && (
+              <div className="flex items-center gap-3">
+                {brand.socialLinks.facebook && (
+                  <a href={brand.socialLinks.facebook} target="_blank" rel="noopener noreferrer" className="text-zinc-400 hover:text-accent text-xs font-bold">Facebook</a>
+                )}
+                {brand.socialLinks.instagram && (
+                  <a href={brand.socialLinks.instagram} target="_blank" rel="noopener noreferrer" className="text-zinc-400 hover:text-accent text-xs font-bold">Instagram</a>
+                )}
+                {brand.socialLinks.youtube && (
+                  <a href={brand.socialLinks.youtube} target="_blank" rel="noopener noreferrer" className="text-zinc-400 hover:text-accent text-xs font-bold">YouTube</a>
+                )}
+                {brand.socialLinks.whatsapp && (
+                  <a href={brand.socialLinks.whatsapp} target="_blank" rel="noopener noreferrer" className="text-zinc-400 hover:text-accent text-xs font-bold">WhatsApp</a>
+                )}
+              </div>
+            )}
             <div className="flex flex-wrap items-center justify-center gap-2 text-[11px] font-bold text-zinc-300">
               {["bKash", "Nagad", "VISA", "Mastercard", "SSLCommerz"].map((p) => (
                 <span key={p} className="px-2 py-1 rounded bg-primary-light border border-white/10">

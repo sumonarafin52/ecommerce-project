@@ -25,14 +25,14 @@ const modules = [
     title: "Billing",
     desc: "Business billing info & invoice configuration",
     icon: "🧾",
-    status: "soon",
+    status: "ready",
   },
   {
     href: "/admin/settings/shipping",
     title: "Shipping",
     desc: "Shipping methods, carriers, zones, rates & order tracking",
     icon: "🚚",
-    status: "soon",
+    status: "ready",
   },
 ];
 

@@ -40,6 +40,25 @@
   background: rgb(var(--color-accent));
 }
 
+/* Invoice printing — hides page chrome, keeps only the invoice itself */
+@media print {
+  @page {
+    margin: 12mm;
+  }
+  body * {
+    visibility: hidden;
+  }
+  #invoice-document,
+  #invoice-document * {
+    visibility: visible;
+  }
+  #invoice-document {
+    position: absolute;
+    inset: 0;
+    box-shadow: none !important;
+  }
+}
+
 /* hide scrollbar for horizontal snap rows */
 .no-scrollbar::-webkit-scrollbar {
   display: none;

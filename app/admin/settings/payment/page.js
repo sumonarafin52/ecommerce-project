@@ -53,7 +53,10 @@ function GatewayCard({ gateway, state, onChange }) {
               ) : (
                 <Badge tone="neutral">Incomplete</Badge>
               )}
-              {state.enabled && configured && <Badge tone="accent">Live on checkout</Badge>}
+              {state.enabled && configured && gateway.checkoutLive && <Badge tone="accent">Live on checkout</Badge>}
+              {state.enabled && configured && !gateway.checkoutLive && (
+                <Badge tone="warning">Not connected to checkout yet</Badge>
+              )}
               {gateway.hasModes && (
                 <Badge tone={state.mode === "live" ? "warning" : "info"}>
                   {state.mode === "live" ? "Live mode" : "Sandbox"}

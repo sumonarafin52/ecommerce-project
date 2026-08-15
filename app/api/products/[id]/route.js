@@ -88,6 +88,7 @@ export async function PUT(request, { params }) {
     if (body.subcategory !== undefined) update.subcategory = body.subcategory || "";
     if (body.brand !== undefined) update.brand = body.brand || "";
         if (body.sku !== undefined) update.sku = body.sku.trim() || (await generateSku());
+    if (body.weight !== undefined) update.weight = Number(body.weight) || 0;
     if (body.tags !== undefined) update.tags = Array.isArray(body.tags) ? body.tags : [];
     if (body.images !== undefined) update.images = Array.isArray(body.images) ? body.images : [];
     if (body.stock !== undefined) update.stock = Number(body.stock) || 0;

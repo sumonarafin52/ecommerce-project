@@ -11,7 +11,7 @@ const labelCls = "block text-[11px] font-bold text-zinc-300 mb-1.5 uppercase tra
 
 const emptyForm = {
   name: "", shortDescription: "", description: "",
-  category: "", subcategory: "", brand: "", sku: "",
+  category: "", subcategory: "", brand: "", sku: "", weight: "",
   tags: [], price: "", discountPrice: "",
   stock: "", lowStockThreshold: "5",
   featured: false, status: "public",
@@ -79,6 +79,7 @@ export default function ProductForm({ initial }) {
           name: initial.name || "", shortDescription: initial.shortDescription || "",
           description: initial.description || "", category: initial.category || "",
           subcategory: initial.subcategory || "", brand: initial.brand || "", sku: initial.sku || "",
+          weight: initial.weight || "",
           tags: initial.tags || [], price: initial.price ?? "",
           discountPrice: initial.discountPrice || "", stock: initial.stock ?? "",
           lowStockThreshold: initial.lowStockThreshold ?? "5",
@@ -227,6 +228,7 @@ export default function ProductForm({ initial }) {
         discountPrice: Number(form.discountPrice) || 0,
         stock: Number(form.stock) || 0,
         lowStockThreshold: Number(form.lowStockThreshold) || 5,
+        weight: Number(form.weight) || 0,
         digitalProduct: form.digitalProduct || null,
       };
       const res = await fetch(initial ? `/api/products/${initial._id}` : "/api/products", {
@@ -607,6 +609,11 @@ export default function ProductForm({ initial }) {
               <label className={labelCls}>SKU</label>
               <input className={inputCls} value={form.sku} onChange={set("sku")} placeholder="Auto: SA-SKU-1, SA-SKU-2..." />
               <p className="text-[11px] text-zinc-500 mt-1">Faka rakhle automatic unique SKU generate hobe</p>
+            </div>
+            <div>
+              <label className={labelCls}>Weight (kg)</label>
+              <input type="number" step="0.01" min="0" className={inputCls} value={form.weight} onChange={set("weight")} placeholder="0.5" />
+              <p className="text-[11px] text-zinc-500 mt-1">Used for weight-based shipping rates (Settings → Shipping)</p>
             </div>
           </Section>
 

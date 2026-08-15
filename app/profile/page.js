@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { formatCurrency, formatDate } from "@/lib/utils";
+import TrackingTimeline from "@/components/order/TrackingTimeline";
 
 const badge = (color) => `px-2.5 py-1 rounded-full text-[11px] font-bold capitalize ${color}`;
 
@@ -28,6 +29,20 @@ export default function ProfilePage() {
   const [loading, setLoading] = useState(true);
   const [paymentMsg, setPaymentMsg] = useState(null);
   const [busyId, setBusyId] = useState("");
+  const [trackingOpenId, setTrackingOpenId] = useState("");
+  const [trackingData, setTrackingData] = useState({});
+
+  const toggleTracking = async (orderId) => {
+    if (trackingOpenId === orderId) {
+      setTrackingOpenId("");
+      return;
+    }
+    setTrackingOpenId(orderId);
+    if (!trackingData[orderId]) {
+      const res = await fetch(`/api/orders/${orderId}/shipment`).then((r) => r.json());
+      if (res.success) setTrackingData((d) => ({ ...d, [orderId]: res.data }));
+    }
+  };
 
   const [review, setReview] = useState(null); // { productId, productName }
   const [rating, setRating] = useState(5);
@@ -211,9 +226,25 @@ export default function ProfilePage() {
                   </div>
 
                   <div className="border-t border-white/10 pt-2 flex flex-wrap items-center justify-between gap-3">
-                    <div className="flex items-center gap-2 text-sm">
+                    <div className="flex items-center gap-3 text-sm">
                       <span className="text-zinc-400">Total</span>
                       <span className="font-bold text-accent">{formatCurrency(order.totalAmount)}</span>
+                      <a
+                        href={`/invoice/${order._id}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs font-bold text-zinc-400 hover:text-accent underline underline-offset-2"
+                      >
+                        Invoice
+                      </a>
+                      {order.orderStatus !== "cancelled" && (
+                        <button
+                          onClick={() => toggleTracking(order._id)}
+                          className="text-xs font-bold text-zinc-400 hover:text-accent underline underline-offset-2"
+                        >
+                          {trackingOpenId === order._id ? "Hide tracking" : "Track"}
+                        </button>
+                      )}
                     </div>
 
                     {/* shipped = customer confirm receipt option */}
@@ -232,6 +263,19 @@ export default function ProfilePage() {
                       </span>
                     )}
                   </div>
+
+                  {trackingOpenId === order._id && (
+                    <div className="border-t border-white/10 pt-3">
+                      {trackingData[order._id] ? (
+                        <TrackingTimeline
+                          orderStatus={trackingData[order._id].orderStatus}
+                          shipment={trackingData[order._id].shipment}
+                        />
+                      ) : (
+                        <p className="text-xs text-zinc-500">Loading tracking...</p>
+                      )}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>

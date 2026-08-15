@@ -1,7 +1,7 @@
 // app/checkout/page.js
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
 import useCartStore from "@/store/cartStore";
@@ -10,13 +10,19 @@ import { formatCurrency, getEffectivePrice } from "@/lib/utils";
 const inputCls =
   "w-full bg-primary-light border border-white/15 rounded-md px-3 py-2.5 text-sm text-white placeholder-zinc-500 outline-none focus:border-accent transition-colors";
 
+const PAYMENT_METHOD_COPY = {
+  cod: { title: "Cash on Delivery", desc: "Product receive korar por payment korun" },
+  sslcommerz: { title: "SSLCommerz (recommended)", desc: "Pay now with bKash, Nagad, VISA, Mastercard or banking" },
+};
+
 export default function CheckoutPage() {
   const { data: session, status } = useSession();
   const items = useCartStore((s) => s.items);
   const clearCart = useCartStore((s) => s.clearCart);
 
   const [form, setForm] = useState({ fullName: "", phone: "", address: "", city: "" });
-  const [method, setMethod] = useState("sslcommerz");
+  const [paymentMethods, setPaymentMethods] = useState([]);
+  const [method, setMethod] = useState("");
   const [error, setError] = useState("");
   const [placing, setPlacing] = useState(false);
   const [placed, setPlaced] = useState(false);
@@ -26,7 +32,26 @@ export default function CheckoutPage() {
   const [couponMsg, setCouponMsg] = useState("");
   const [checking, setChecking] = useState(false);
 
+  const [shippingOptions, setShippingOptions] = useState([]);
+  const [shippingZone, setShippingZone] = useState(null);
+  const [shippingLoading, setShippingLoading] = useState(false);
+  const [shippingMethodId, setShippingMethodId] = useState("");
+
   const baseTotal = items.reduce((sum, i) => sum + getEffectivePrice(i) * i.quantity, 0);
+
+  // load which payment methods are actually enabled (Settings → Payment Methods)
+  useEffect(() => {
+    fetch("/api/settings")
+      .then((r) => r.json())
+      .then((res) => {
+        if (res.success) {
+          const methods = res.data.enabledPaymentMethods || [];
+          setPaymentMethods(methods);
+          if (methods.length) setMethod(methods[0].id);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   const previewDiscount = useMemo(() => {
     if (!applied) return 0;
@@ -45,9 +70,51 @@ export default function CheckoutPage() {
     return applied.type === "percentage" ? Math.round((eligible * applied.value) / 100) : Math.min(applied.value, eligible);
   }, [applied, items, baseTotal]);
 
-  const finalTotal = Math.max(0, baseTotal - previewDiscount);
+  const afterDiscount = Math.max(0, baseTotal - previewDiscount);
+  const selectedShipping = shippingOptions.find((m) => m._id === shippingMethodId);
+  const shippingCost = selectedShipping?.cost || 0;
+  const finalTotal = afterDiscount + shippingCost;
 
   const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
+
+  // fetch real shipping options for the entered city whenever it changes
+  // (debounced) — this is what actually connects Settings → Shipping to checkout
+  useEffect(() => {
+    if (!form.city.trim() || items.length === 0) {
+      setShippingOptions([]);
+      setShippingZone(null);
+      return;
+    }
+    const t = setTimeout(() => {
+      setShippingLoading(true);
+      fetch("/api/shipping/quote", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          city: form.city,
+          items: items.map((i) => ({ product: i._id, quantity: i.quantity })),
+          subtotal: afterDiscount,
+          paymentMethod: method,
+        }),
+      })
+        .then((r) => r.json())
+        .then((res) => {
+          if (res.success) {
+            setShippingZone(res.data.zone);
+            setShippingOptions(res.data.methods);
+            // keep selection if still valid, else default to the cheapest option
+            setShippingMethodId((prev) => {
+              if (res.data.methods.some((m) => m._id === prev)) return prev;
+              const cheapest = [...res.data.methods].sort((a, b) => a.cost - b.cost)[0];
+              return cheapest?._id || "";
+            });
+          }
+        })
+        .finally(() => setShippingLoading(false));
+    }, 500);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.city, afterDiscount, method, items.length]);
 
   const applyCoupon = async () => {
     if (!codeInput.trim()) return;
@@ -75,6 +142,14 @@ export default function CheckoutPage() {
       setError("Please fill in all shipping fields.");
       return;
     }
+    if (!method) {
+      setError("No payment method is available. Please contact support.");
+      return;
+    }
+    if (shippingOptions.length > 0 && !shippingMethodId) {
+      setError("Please select a shipping method.");
+      return;
+    }
     setPlacing(true);
     try {
       const orderRes = await fetch("/api/orders", {
@@ -85,6 +160,7 @@ export default function CheckoutPage() {
           shippingAddress: form,
           paymentMethod: method,
           discountCode: applied?.code || "",
+          shippingMethodId: shippingMethodId || undefined,
         }),
       }).then((r) => r.json());
 
@@ -191,39 +267,73 @@ export default function CheckoutPage() {
               <input className={inputCls} placeholder="City" value={form.city} onChange={set("city")} />
             </div>
 
+            {form.city.trim() && (
+              <div className="bg-primary-light border border-white/10 rounded-xl p-5 space-y-3">
+                <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                  <span className="w-1 h-5 bg-accent rounded-full" />
+                  Shipping Method
+                </h2>
+                {shippingLoading ? (
+                  <p className="text-xs text-zinc-400">Checking delivery options...</p>
+                ) : shippingOptions.length === 0 ? (
+                  <p className="text-xs text-zinc-400">No delivery methods are configured for this area yet.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {shippingOptions.map((opt) => (
+                      <button
+                        key={opt._id}
+                        type="button"
+                        onClick={() => setShippingMethodId(opt._id)}
+                        className={`w-full flex items-center justify-between gap-3 rounded-md px-4 py-3 border transition-colors text-left ${
+                          shippingMethodId === opt._id ? "border-accent bg-accent/10" : "border-white/10 hover:border-white/30"
+                        }`}
+                      >
+                        <div className="flex items-center gap-3">
+                          <span className={`w-4 h-4 rounded-full border-4 shrink-0 ${shippingMethodId === opt._id ? "border-accent" : "border-zinc-500"}`} />
+                          <div>
+                            <p className="text-sm font-bold text-white">{opt.name}</p>
+                            {opt.estimatedDelivery && <p className="text-xs text-zinc-400">{opt.estimatedDelivery}</p>}
+                          </div>
+                        </div>
+                        <span className="text-sm font-bold text-accent shrink-0">
+                          {opt.cost > 0 ? formatCurrency(opt.cost) : "Free"}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
             <div className="bg-primary-light border border-white/10 rounded-xl p-5 space-y-3">
               <h2 className="text-lg font-bold text-white flex items-center gap-2">
                 <span className="w-1 h-5 bg-accent rounded-full" />
                 Payment Method
               </h2>
 
-              <button
-                type="button"
-                onClick={() => setMethod("sslcommerz")}
-                className={`w-full flex items-center gap-3 rounded-md px-4 py-3 border transition-colors text-left ${
-                  method === "sslcommerz" ? "border-accent bg-accent/10" : "border-white/10 hover:border-white/30"
-                }`}
-              >
-                <span className={`w-4 h-4 rounded-full border-4 ${method === "sslcommerz" ? "border-accent" : "border-zinc-500"}`} />
-                <div>
-                  <p className="text-sm font-bold text-white">SSLCommerz (recommended)</p>
-                  <p className="text-xs text-zinc-400">Pay now with bKash, Nagad, VISA, Mastercard or banking</p>
-                </div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setMethod("cod")}
-                className={`w-full flex items-center gap-3 rounded-md px-4 py-3 border transition-colors text-left ${
-                  method === "cod" ? "border-accent bg-accent/10" : "border-white/10 hover:border-white/30"
-                }`}
-              >
-                <span className={`w-4 h-4 rounded-full border-4 ${method === "cod" ? "border-accent" : "border-zinc-500"}`} />
-                <div>
-                  <p className="text-sm font-bold text-white">Cash on Delivery</p>
-                  <p className="text-xs text-zinc-400">Product receive korar por payment korun</p>
-                </div>
-              </button>
+              {paymentMethods.length === 0 ? (
+                <p className="text-xs text-zinc-400">No payment methods are currently available. Please contact support.</p>
+              ) : (
+                paymentMethods.map((pm) => {
+                  const copy = PAYMENT_METHOD_COPY[pm.id] || { title: pm.label, desc: "" };
+                  return (
+                    <button
+                      key={pm.id}
+                      type="button"
+                      onClick={() => setMethod(pm.id)}
+                      className={`w-full flex items-center gap-3 rounded-md px-4 py-3 border transition-colors text-left ${
+                        method === pm.id ? "border-accent bg-accent/10" : "border-white/10 hover:border-white/30"
+                      }`}
+                    >
+                      <span className={`w-4 h-4 rounded-full border-4 ${method === pm.id ? "border-accent" : "border-zinc-500"}`} />
+                      <div>
+                        <p className="text-sm font-bold text-white">{copy.title}</p>
+                        {copy.desc && <p className="text-xs text-zinc-400">{copy.desc}</p>}
+                      </div>
+                    </button>
+                  );
+                })
+              )}
             </div>
 
             {error && (
@@ -291,8 +401,10 @@ export default function CheckoutPage() {
               </div>
             )}
             <div className="flex justify-between text-sm text-zinc-300">
-              <span>Delivery</span>
-              <span className="text-green-400 font-bold">Free</span>
+              <span>Delivery{selectedShipping ? ` (${selectedShipping.name})` : ""}</span>
+              <span className={shippingCost > 0 ? "text-white font-bold" : "text-green-400 font-bold"}>
+                {form.city.trim() ? (shippingCost > 0 ? formatCurrency(shippingCost) : "Free") : "Enter city"}
+              </span>
             </div>
             <div className="border-t border-white/10 pt-3 flex justify-between text-white font-bold">
               <span>Total</span>

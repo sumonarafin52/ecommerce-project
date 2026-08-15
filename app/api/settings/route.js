@@ -43,11 +43,28 @@ function toAdminSafeJSON(settings) {
 
 // Public view (storefront): no credentials, no config shape at all — just
 // which gateways are enabled and ready, so checkout can decide what to show.
+// Only gateways with checkoutLive:true are ever offered — enabling a
+// not-yet-integrated gateway (e.g. Stripe) configures it for later but
+// doesn't put it in front of customers, since there's no real flow behind it.
 function toPublicJSON(settings) {
   const obj = settings.toObject();
   const payment = obj.payment || {};
   const enabledPaymentMethods = PAYMENT_GATEWAYS.filter((gateway) => {
+    if (!gateway.checkoutLive) return false;
     const stored = payment[gateway.id];
+
+    // Cash on Delivery needs no configuration — on by default until
+    // explicitly turned off.
+    if (gateway.id === "cod") return stored ? stored.enabled !== false : true;
+
+    // SSLCommerz: if Settings has never been touched, fall back to whatever
+    // is in .env (matches app/api/checkout/route.js's own fallback), so a
+    // store that configured SSLCommerz the old way — via .env — keeps
+    // working exactly as before without a forced trip to Settings first.
+    if (gateway.id === "sslcommerz" && !stored) {
+      return !!(process.env.SSLCOMMERZ_STORE_ID && process.env.SSLCOMMERZ_STORE_PASSWORD);
+    }
+
     return stored?.enabled && isGatewayConfigured(gateway, stored.fields || {});
   }).map((g) => ({ id: g.id, label: g.label, region: g.region }));
 
@@ -96,6 +113,22 @@ export async function PUT(request) {
       if (Array.isArray(body.homepage.heroSlides)) settings.homepage.heroSlides = body.homepage.heroSlides;
       if (Array.isArray(body.homepage.banners)) settings.homepage.banners = body.homepage.banners;
       if (Array.isArray(body.homepage.sections)) settings.homepage.sections = body.homepage.sections;
+    }
+
+    if (body.billing && typeof body.billing === "object") {
+      const currentBilling = settings.billing?.toObject?.() ?? settings.billing ?? {};
+      const incomingBilling = { ...body.billing };
+      if (incomingBilling.invoice && typeof incomingBilling.invoice === "object") {
+        incomingBilling.invoice = { ...(currentBilling.invoice || {}), ...incomingBilling.invoice };
+      }
+      // nextInvoiceNumber only changes if explicitly sent as a positive
+      // integer (the "Starting Invoice Number" field) — never wiped out by
+      // an unrelated save of the rest of the billing form
+      if (!(Number.isInteger(incomingBilling.nextInvoiceNumber) && incomingBilling.nextInvoiceNumber > 0)) {
+        delete incomingBilling.nextInvoiceNumber;
+      }
+      settings.billing = { ...currentBilling, ...incomingBilling };
+      settings.markModified("billing");
     }
 
     if (body.payment && typeof body.payment === "object") {

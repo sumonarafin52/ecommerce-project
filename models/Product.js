@@ -34,6 +34,7 @@ const productSchema = new mongoose.Schema(
     subcategory: { type: String, default: "", trim: true },
     brand: { type: String, default: "", trim: true },
     sku: { type: String, default: "", trim: true },
+    weight: { type: Number, default: 0 }, // kg — used for weight-based shipping rate calculation
     tags: [{ type: String, trim: true }],
     price: { type: Number, required: true, min: 0 },
     discountPrice: { type: Number, default: 0 },

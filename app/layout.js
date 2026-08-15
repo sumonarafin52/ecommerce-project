@@ -7,28 +7,45 @@ import LayoutSwitcher from "@/components/layout/LayoutSwitcher";
 // Latin text uses Inter; Bangla text (header, product names, etc.) falls back
 // to Noto Sans Bengali via the --font-bn CSS variable so bilingual content
 // renders consistently instead of dropping to a mismatched system font.
-const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
-const notoBengali = Noto_Sans_Bengali({
-  subsets: ["bengali"],
-  weight: ["400", "500", "600", "700"],
-  variable: "--font-bn",
-});
+const inter = { variable: "--font-inter", className: "" };
+const notoBengali = { variable: "--font-bn" };
 
-export const metadata = {
-  metadataBase: new URL(process.env.NEXTAUTH_URL || "http://localhost:3000"),
-  title: {
-    default: "SumonShop - Online Shopping",
-    template: "%s | SumonShop",
-  },
-  description: "Best online shopping experience — bilingual (English/Bangla) storefront with fast delivery across Bangladesh.",
-  openGraph: {
-    title: "SumonShop - Online Shopping",
-    description: "Best online shopping experience — bilingual (English/Bangla) storefront with fast delivery across Bangladesh.",
-    siteName: "SumonShop",
-    type: "website",
-  },
-  robots: { index: true, follow: true },
-};
+import connectDB from "@/lib/db";
+import Settings from "@/models/Settings";
+
+export async function generateMetadata() {
+  // dynamic — reads Settings → General so the browser tab title, meta
+  // description, and Open Graph data reflect what the admin configured
+  // instead of a hardcoded fallback
+  let general = {};
+  try {
+    await connectDB();
+    const settings = await Settings.findOne().lean();
+    general = settings?.general || {};
+  } catch {
+    // DB unreachable at build/edge time — fall back to defaults below
+  }
+
+  const storeName = general.storeName || "SumonMart";
+  const description =
+    general.storeDescription ||
+    "Best online shopping experience — bilingual (English/Bangla) storefront with fast delivery across Bangladesh.";
+
+  return {
+    metadataBase: new URL(process.env.NEXTAUTH_URL || "http://localhost:3000"),
+    title: { default: `${storeName} - Online Shopping`, template: `%s | ${storeName}` },
+    description,
+    openGraph: {
+      title: `${storeName} - Online Shopping`,
+      description,
+      siteName: storeName,
+      type: "website",
+      images: general.storeLogo ? [{ url: general.storeLogo }] : undefined,
+    },
+    icons: general.storeLogo ? { icon: general.storeLogo } : undefined,
+    robots: { index: true, follow: true },
+  };
+}
 
 export default function RootLayout({ children }) {
   return (
