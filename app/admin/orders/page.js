@@ -4,6 +4,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
+import usePermissions from "@/lib/usePermissions";
 import { formatCurrency, formatDate, getEffectivePrice } from "@/lib/utils";
 
 const statusOptions = ["processing", "shipped", "delivered", "cancelled"];
@@ -15,149 +16,6 @@ const inputCls =
   "bg-primary border border-white/15 rounded-md px-3 py-2 text-sm text-white placeholder-zinc-500 outline-none focus:border-accent transition-colors";
 
 const badge = (color) => `px-2.5 py-1 rounded-full text-[11px] font-bold capitalize ${color}`;
-
-const SHIPMENT_STATUSES = ["confirmed", "processing", "shipped", "in_transit", "out_for_delivery", "delivered", "failed", "returned"];
-
-function ShipmentPanel({ orderId }) {
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [shipment, setShipment] = useState(null);
-  const [carriers, setCarriers] = useState([]);
-  const [methods, setMethods] = useState([]);
-  const [eventStatus, setEventStatus] = useState("shipped");
-  const [eventNote, setEventNote] = useState("");
-  const [eventLocation, setEventLocation] = useState("");
-
-  const load = () => {
-    setLoading(true);
-    Promise.all([
-      fetch(`/api/orders/${orderId}/shipment`).then((r) => r.json()),
-      fetch("/api/shipping/carriers").then((r) => r.json()),
-      fetch("/api/shipping/methods").then((r) => r.json()),
-    ]).then(([s, c, m]) => {
-      if (s.success) setShipment(s.data.shipment);
-      if (c.success) setCarriers(c.data);
-      if (m.success) setMethods(m.data);
-    }).finally(() => setLoading(false));
-  };
-  useEffect(load, [orderId]);
-
-  const saveFields = async () => {
-    setSaving(true);
-    try {
-      const res = await fetch(`/api/orders/${orderId}/shipment`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          carrier: shipment.carrier?._id || shipment.carrier || "",
-          method: shipment.method?._id || shipment.method || "",
-          trackingNumber: shipment.trackingNumber || "",
-          estimatedDelivery: shipment.estimatedDelivery || "",
-          notes: shipment.notes || "",
-        }),
-      }).then((r) => r.json());
-      if (res.success) setShipment(res.data.shipment);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const addEvent = async () => {
-    setSaving(true);
-    try {
-      const res = await fetch(`/api/orders/${orderId}/shipment`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ addEvent: { status: eventStatus, note: eventNote, location: eventLocation } }),
-      }).then((r) => r.json());
-      if (res.success) {
-        setShipment(res.data.shipment);
-        setEventNote("");
-        setEventLocation("");
-      }
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  if (loading || !shipment) {
-    return <p className="text-xs text-zinc-500">Loading shipment...</p>;
-  }
-
-  const carrierId = shipment.carrier?._id || shipment.carrier || "";
-  const methodId = shipment.method?._id || shipment.method || "";
-  const trackUrl = shipment.carrier?.trackingUrlTemplate && shipment.trackingNumber
-    ? shipment.carrier.trackingUrlTemplate.replace("{tracking_number}", shipment.trackingNumber)
-    : null;
-
-  return (
-    <div className="space-y-3 bg-black/20 rounded-md p-3 border border-white/5">
-      <p className="text-xs font-bold text-zinc-400 uppercase tracking-wide">Shipping</p>
-
-      <div className="grid grid-cols-2 gap-2">
-        <select className={selectCls} value={carrierId} onChange={(e) => setShipment({ ...shipment, carrier: e.target.value })}>
-          <option value="" className="bg-primary">No carrier</option>
-          {carriers.map((c) => <option key={c._id} value={c._id} className="bg-primary">{c.name}</option>)}
-        </select>
-        <select className={selectCls} value={methodId} onChange={(e) => setShipment({ ...shipment, method: e.target.value })}>
-          <option value="" className="bg-primary">No method</option>
-          {methods.map((m) => <option key={m._id} value={m._id} className="bg-primary">{m.name}</option>)}
-        </select>
-        <input
-          className={inputCls}
-          placeholder="Tracking number"
-          value={shipment.trackingNumber || ""}
-          onChange={(e) => setShipment({ ...shipment, trackingNumber: e.target.value })}
-        />
-        <input
-          type="date"
-          className={inputCls}
-          value={shipment.estimatedDelivery ? String(shipment.estimatedDelivery).slice(0, 10) : ""}
-          onChange={(e) => setShipment({ ...shipment, estimatedDelivery: e.target.value })}
-        />
-      </div>
-      {trackUrl && (
-        <a href={trackUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-accent hover:underline font-bold">
-          Track on carrier site ↗
-        </a>
-      )}
-      <button type="button" onClick={saveFields} disabled={saving} className="text-xs font-bold text-accent hover:underline disabled:opacity-50">
-        {saving ? "Saving..." : "Save shipping details"}
-      </button>
-
-      {shipment.timeline?.length > 0 && (
-        <div className="space-y-1.5 pt-2 border-t border-white/10">
-          {shipment.timeline.slice().reverse().map((ev, i) => (
-            <div key={i} className="text-xs text-zinc-300 flex gap-2">
-              <span className="font-bold capitalize text-white shrink-0">{ev.status.replace(/_/g, " ")}</span>
-              <span className="text-zinc-500">{formatDate(ev.at)}{ev.location ? ` · ${ev.location}` : ""}</span>
-              {ev.note && <span className="text-zinc-400">— {ev.note}</span>}
-            </div>
-          ))}
-        </div>
-      )}
-
-      <div className="pt-2 border-t border-white/10 space-y-2">
-        <p className="text-[11px] font-bold text-zinc-500 uppercase">Add tracking update</p>
-        <div className="grid grid-cols-2 gap-2">
-          <select className={selectCls} value={eventStatus} onChange={(e) => setEventStatus(e.target.value)}>
-            {SHIPMENT_STATUSES.map((s) => <option key={s} value={s} className="bg-primary capitalize">{s.replace(/_/g, " ")}</option>)}
-          </select>
-          <input className={inputCls} placeholder="Location (optional)" value={eventLocation} onChange={(e) => setEventLocation(e.target.value)} />
-        </div>
-        <input className={`${inputCls} w-full`} placeholder="Note (optional)" value={eventNote} onChange={(e) => setEventNote(e.target.value)} />
-        <button
-          type="button"
-          onClick={addEvent}
-          disabled={saving}
-          className="bg-accent/20 hover:bg-accent/30 text-accent text-xs font-bold px-3 py-2 rounded-md transition-colors disabled:opacity-50"
-        >
-          + Add Update
-        </button>
-      </div>
-    </div>
-  );
-}
 
 const payColors = {
   paid: "bg-green-500/15 text-green-400",
@@ -212,15 +70,25 @@ const emptyCreate = {
 
 export default function AdminOrdersPage() {
   const { data: session, status } = useSession();
+  const { can, loading: permLoading } = usePermissions();
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState("all");
   const [search, setSearch] = useState("");
   const [showFilters, setShowFilters] = useState(false);
-  const [filters, setFilters] = useState({ from: "", to: "", method: "all", city: "", min: "", max: "" });
+  const [filters, setFilters] = useState({
+    from: "",
+    to: "",
+    method: "all",
+    orderStatus: "all",
+    paymentStatus: "all",
+    city: "",
+    min: "",
+    max: "",
+    tracking: "",
+  });
   const [selectedIds, setSelectedIds] = useState([]);
   const [bulkStatus, setBulkStatus] = useState("shipped");
-  const [selected, setSelected] = useState(null);
   const [updating, setUpdating] = useState(false);
 
   const [showCreate, setShowCreate] = useState(false);
@@ -230,7 +98,12 @@ export default function AdminOrdersPage() {
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState("");
 
-  const isAdmin = session?.user?.role === "admin";
+  // Staff with the "orders" permission can view the list; bulk mutations
+  // additionally require "orders_update" (enforced server-side too — this
+  // is just for showing/hiding controls, not the actual security boundary).
+  const canView = can("orders");
+  const canUpdate = can("orders_update");
+  const isAdmin = canView; // kept as the existing variable name used below
 
   const loadOrders = () => {
     fetch("/api/orders")
@@ -281,17 +154,58 @@ export default function AdminOrdersPage() {
     if (filters.from) list = list.filter((o) => new Date(o.createdAt) >= new Date(filters.from));
     if (filters.to) list = list.filter((o) => new Date(o.createdAt) <= new Date(filters.to + "T23:59:59"));
     if (filters.method !== "all") list = list.filter((o) => o.paymentMethod === filters.method);
+    if (filters.orderStatus !== "all") list = list.filter((o) => o.orderStatus === filters.orderStatus);
+    if (filters.paymentStatus !== "all") list = list.filter((o) => o.paymentStatus === filters.paymentStatus);
     if (filters.city)
       list = list.filter((o) =>
         (o.shippingAddress?.city || "").toLowerCase().includes(filters.city.toLowerCase())
       );
     if (filters.min) list = list.filter((o) => o.totalAmount >= Number(filters.min));
     if (filters.max) list = list.filter((o) => o.totalAmount <= Number(filters.max));
+    if (filters.tracking) {
+      const t = filters.tracking.trim().toLowerCase();
+      list = list.filter((o) =>
+        (o.shipment?.trackingNumber || "").toLowerCase().includes(t) ||
+        (o.fulfillments || []).some((f) => (f.trackingNumber || "").toLowerCase().includes(t))
+      );
+    }
 
     return list;
   }, [orders, tab, search, filters]);
 
   const activeFilterCount = Object.values(filters).filter((v) => v && v !== "all").length;
+
+  // ===== CSV EXPORT (client-side — exports whatever is currently filtered) =====
+  const exportCSV = () => {
+    const rows = visible.map((o) => ({
+      "Order Number": `#${(o._id || "").slice(-6).toUpperCase()}`,
+      "Date": formatDate(o.createdAt),
+      "Customer": o.user?.name || "",
+      "Email": o.user?.email || "",
+      "Phone": o.shippingAddress?.phone || "",
+      "City": o.shippingAddress?.city || "",
+      "Items": (o.items || []).map((i) => `${i.name} x${i.quantity}`).join("; "),
+      "Subtotal": o.baseAmount || o.items.reduce((s, i) => s + i.price * i.quantity, 0),
+      "Discount": o.discountAmount || 0,
+      "Shipping": o.shippingCost || 0,
+      "Total": o.totalAmount,
+      "Payment Method": o.paymentMethod,
+      "Payment Status": o.paymentStatus,
+      "Order Status": o.orderStatus,
+      "Tracking": o.shipment?.trackingNumber || (o.fulfillments || []).map((f) => f.trackingNumber).filter(Boolean).join("; ") || "",
+    }));
+    if (!rows.length) return;
+    const headers = Object.keys(rows[0]);
+    const escape = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+    const csv = [headers.join(","), ...rows.map((r) => headers.map((h) => escape(r[h])).join(","))].join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `orders-export-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   // ===== SELECTION =====
   const toggleAll = () => {
@@ -386,27 +300,7 @@ export default function AdminOrdersPage() {
     setCreating(false);
   };
 
-  const saveStatus = async (e) => {
-    e.preventDefault();
-    if (!selected) return;
-    setUpdating(true);
-    try {
-      const res = await fetch(`/api/orders/${selected._id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ orderStatus: selected.orderStatus, paymentStatus: selected.paymentStatus }),
-      }).then((r) => r.json());
-      if (res.success) {
-        loadOrders();
-        setSelected(null);
-      } else alert(res.message);
-    } catch {
-      alert("Failed to update order");
-    }
-    setUpdating(false);
-  };
-
-  if (status === "loading" || loading) {
+  if (status === "loading" || loading || permLoading) {
     return (
       <div className="bg-primary min-h-screen flex items-center justify-center">
         <div className="w-10 h-10 border-4 border-accent border-t-transparent rounded-full animate-spin" />
@@ -434,12 +328,22 @@ export default function AdminOrdersPage() {
             Orders
             <span className="bg-accent/15 text-accent text-xs font-bold px-2.5 py-1 rounded-full">{orders.length}</span>
           </h1>
-          <button
-            onClick={openCreate}
-            className="bg-accent hover:bg-accent/80 text-primary font-bold px-4 py-2.5 rounded-md text-sm transition-colors shadow-glow"
-          >
-            + Create Order
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={exportCSV}
+              className="border border-white/15 hover:border-accent hover:text-accent text-zinc-300 font-bold px-4 py-2.5 rounded-md text-sm transition-colors"
+            >
+              Export CSV
+            </button>
+            {canUpdate && (
+              <button
+                onClick={openCreate}
+                className="bg-accent hover:bg-accent/80 text-primary font-bold px-4 py-2.5 rounded-md text-sm transition-colors shadow-glow"
+              >
+                + Create Order
+              </button>
+            )}
+          </div>
         </div>
 
         {/* search + filter toggle */}
@@ -482,8 +386,30 @@ export default function AdminOrdersPage() {
               </select>
             </div>
             <div>
+              <label className="block text-[11px] text-zinc-400 mb-1">Order status</label>
+              <select className={`${selectCls} w-full`} value={filters.orderStatus} onChange={(e) => setFilters((f) => ({ ...f, orderStatus: e.target.value }))}>
+                <option value="all" className="bg-primary">All</option>
+                {statusOptions.map((s) => (
+                  <option key={s} value={s} className="bg-primary capitalize">{s}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-[11px] text-zinc-400 mb-1">Payment status</label>
+              <select className={`${selectCls} w-full`} value={filters.paymentStatus} onChange={(e) => setFilters((f) => ({ ...f, paymentStatus: e.target.value }))}>
+                <option value="all" className="bg-primary">All</option>
+                {paymentOptions.map((s) => (
+                  <option key={s} value={s} className="bg-primary capitalize">{s}</option>
+                ))}
+              </select>
+            </div>
+            <div>
               <label className="block text-[11px] text-zinc-400 mb-1">City</label>
               <input className={`${inputCls} w-full`} placeholder="e.g. Dhaka" value={filters.city} onChange={(e) => setFilters((f) => ({ ...f, city: e.target.value }))} />
+            </div>
+            <div>
+              <label className="block text-[11px] text-zinc-400 mb-1">Tracking number</label>
+              <input className={`${inputCls} w-full`} placeholder="Search tracking #" value={filters.tracking} onChange={(e) => setFilters((f) => ({ ...f, tracking: e.target.value }))} />
             </div>
             <div>
               <label className="block text-[11px] text-zinc-400 mb-1">Min total (৳)</label>
@@ -495,7 +421,7 @@ export default function AdminOrdersPage() {
             </div>
             <div className="col-span-2 lg:col-span-6 text-right">
               <button
-                onClick={() => setFilters({ from: "", to: "", method: "all", city: "", min: "", max: "" })}
+                onClick={() => setFilters({ from: "", to: "", method: "all", orderStatus: "all", paymentStatus: "all", city: "", min: "", max: "", tracking: "" })}
                 className="text-xs text-zinc-400 hover:text-red-400 font-bold"
               >
                 Clear all filters
@@ -523,7 +449,7 @@ export default function AdminOrdersPage() {
         </div>
 
         {/* bulk actions bar */}
-        {selectedIds.length > 0 && (
+        {selectedIds.length > 0 && canUpdate && (
           <div className="flex flex-wrap items-center gap-3 bg-accent/10 border border-accent/40 rounded-xl px-4 py-3">
             <span className="text-sm font-bold text-accent">{selectedIds.length} selected</span>
             <select className={selectCls} value={bulkStatus} onChange={(e) => setBulkStatus(e.target.value)}>
@@ -575,7 +501,9 @@ export default function AdminOrdersPage() {
                       <input type="checkbox" checked={selectedIds.includes(o._id)} onChange={() => toggleOne(o._id)} className="accent-[#f5a623] w-4 h-4" />
                     </td>
                     <td className="p-4">
-                      <p className="font-bold text-white">#{(o._id || "").slice(-6).toUpperCase()}</p>
+                      <Link href={`/admin/orders/${o._id}`} className="font-bold text-white hover:text-accent hover:underline">
+                        #{(o._id || "").slice(-6).toUpperCase()}
+                      </Link>
                       {o.paymentMethod === "cod" && (
                         <span className="text-[10px] font-bold uppercase tracking-wider text-blue-400 bg-blue-500/15 px-1.5 py-0.5 rounded">COD</span>
                       )}
@@ -589,9 +517,9 @@ export default function AdminOrdersPage() {
                     <td className="p-4"><span className={badge(orderColors[o.orderStatus])}>{o.orderStatus}</span></td>
                     <td className="p-4 font-bold text-accent">{formatCurrency(o.totalAmount)}</td>
                     <td className="p-4 text-right">
-                      <button onClick={() => setSelected(o)} className="text-accent hover:underline font-bold text-xs">
-                        View & Update
-                      </button>
+                      <Link href={`/admin/orders/${o._id}`} className="text-accent hover:underline font-bold text-xs">
+                        View details
+                      </Link>
                     </td>
                   </tr>
                 ))}
@@ -600,80 +528,6 @@ export default function AdminOrdersPage() {
           </div>
         )}
       </div>
-
-      {/* ===== VIEW & UPDATE MODAL ===== */}
-      {selected && (
-        <div className="fixed inset-0 z-50 bg-black/70 flex items-start sm:items-center justify-center p-4 overflow-y-auto">
-          <form onSubmit={saveStatus} className="w-full max-w-lg bg-primary-light border border-white/10 rounded-xl p-6 space-y-4 my-8">
-            <div className="flex items-center justify-between">
-              <h2 className="text-lg font-bold text-white">Order #{(selected._id || "").slice(-6).toUpperCase()}</h2>
-              <div className="flex items-center gap-3">
-                <a
-                  href={`/invoice/${selected._id}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-accent hover:underline font-bold text-xs"
-                >
-                  View Invoice
-                </a>
-                <button type="button" onClick={() => setSelected(null)} className="text-zinc-400 hover:text-white text-lg" aria-label="Close">✕</button>
-              </div>
-            </div>
-
-            <div className="space-y-1 text-sm text-zinc-300 bg-black/20 rounded-md p-3 border border-white/5">
-              <p><span className="text-zinc-500">Name:</span> {selected.shippingAddress?.fullName}</p>
-              <p><span className="text-zinc-500">Phone:</span> {selected.shippingAddress?.phone}</p>
-              <p><span className="text-zinc-500">Address:</span> {selected.shippingAddress?.address}, {selected.shippingAddress?.city}</p>
-              <p><span className="text-zinc-500">Method:</span> {selected.paymentMethod === "cod" ? "Cash on Delivery" : "SSLCommerz"}</p>
-              {selected.shippedAt && <p><span className="text-zinc-500">Shipped:</span> {formatDate(selected.shippedAt)}</p>}
-              {selected.deliveredAt && <p><span className="text-zinc-500">Delivered:</span> {formatDate(selected.deliveredAt)}</p>}
-            </div>
-
-            {selected.paymentMethod === "cod" && selected.paymentStatus === "pending" && (
-              <p className="text-xs text-blue-400 bg-blue-500/10 border border-blue-500/30 rounded-md px-3 py-2">
-                COD order — customer product receive korle paymentStatus "paid" kore din.
-              </p>
-            )}
-
-            <ShipmentPanel orderId={selected._id} />
-
-            <div className="space-y-2 max-h-40 overflow-y-auto no-scrollbar bg-black/20 rounded-md p-3 border border-white/5">
-              {(selected.items || []).map((it, i) => (
-                <div key={i} className="flex justify-between text-sm text-zinc-300">
-                  <span className="line-clamp-1 max-w-[70%]">{it.name} (×{it.quantity})</span>
-                  <span className="font-bold text-accent">{formatCurrency((it.price || 0) * it.quantity)}</span>
-                </div>
-              ))}
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs text-zinc-400 mb-1">Fulfillment Status</label>
-                <select className={`${selectCls} w-full`} value={selected.orderStatus} onChange={(e) => setSelected({ ...selected, orderStatus: e.target.value })}>
-                  {statusOptions.map((s) => (<option key={s} value={s} className="bg-primary">{s}</option>))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs text-zinc-400 mb-1">Payment Status</label>
-                <select className={`${selectCls} w-full`} value={selected.paymentStatus} onChange={(e) => setSelected({ ...selected, paymentStatus: e.target.value })}>
-                  {paymentOptions.map((s) => (<option key={s} value={s} className="bg-primary">{s}</option>))}
-                </select>
-              </div>
-            </div>
-
-            <div className="flex justify-between items-center pt-2 border-t border-white/10">
-              <span className="text-sm text-zinc-400">
-                Total {selected.shippingCost > 0 && <span className="text-[11px]">(incl. {formatCurrency(selected.shippingCost)} shipping{selected.shippingMethodName ? ` · ${selected.shippingMethodName}` : ""})</span>}
-              </span>
-              <span className="text-xl font-extrabold text-accent">{formatCurrency(selected.totalAmount)}</span>
-            </div>
-
-            <button type="submit" disabled={updating} className="w-full bg-accent hover:bg-accent/80 text-primary font-bold py-3 rounded-md transition-colors disabled:opacity-50">
-              {updating ? "Updating..." : "Save Changes"}
-            </button>
-          </form>
-        </div>
-      )}
 
       {/* ===== CREATE ORDER MODAL ===== */}
       {showCreate && (

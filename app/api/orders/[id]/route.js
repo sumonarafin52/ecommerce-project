@@ -4,7 +4,18 @@ import { getServerSession } from "next-auth";
 import connectDB from "@/lib/db";
 import Order from "@/models/Order";
 import Product from "@/models/Product";
+import { hasPermission } from "@/lib/rbac";
+import { isValidTransition } from "@/lib/orderStatus";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
+
+function pushActivity(order, type, message, session) {
+  order.activity.push({
+    type,
+    message,
+    by: { id: session?.user?.id || null, name: session?.user?.name || "System" },
+    at: new Date(),
+  });
+}
 
 export async function GET(request, { params }) {
   try {
@@ -14,17 +25,26 @@ export async function GET(request, { params }) {
       return NextResponse.json({ success: false, message: "Login required" }, { status: 401 });
     }
 
-    const order = await Order.findById(params.id).populate("user", "name email");
+    const order = await Order.findById(params.id)
+      .populate("user", "name email")
+      .populate("fulfillments.carrier", "name logo trackingUrlTemplate phone")
+      .populate("fulfillments.method", "name estimatedDelivery")
+      .populate("shipment.carrier", "name logo trackingUrlTemplate phone")
+      .populate("shipment.method", "name estimatedDelivery");
     if (!order) {
       return NextResponse.json({ success: false, message: "Order not found" }, { status: 404 });
     }
-    if (order.user._id.toString() !== session.user.id && session.user.role !== "admin") {
+
+    const isOwner = order.user._id.toString() === session.user.id;
+    const isStaff = await hasPermission(session, "orders");
+    if (!isOwner && !isStaff) {
       return NextResponse.json({ success: false, message: "Not authorized" }, { status: 403 });
     }
 
     return NextResponse.json({ success: true, data: order });
   } catch (error) {
-    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    console.error("[orders:get]", error);
+    return NextResponse.json({ success: false, message: "Something went wrong" }, { status: 500 });
   }
 }
 
@@ -42,7 +62,6 @@ export async function PUT(request, { params }) {
     }
 
     const body = await request.json();
-    const isAdmin = session.user.role === "admin";
     const isOwner = order.user.toString() === session.user.id;
 
     // ===== CUSTOMER: confirm receipt (fulfill) =====
@@ -51,25 +70,29 @@ export async function PUT(request, { params }) {
         return NextResponse.json({ success: false, message: "Not your order" }, { status: 403 });
       }
       if (order.orderStatus !== "shipped") {
-        return NextResponse.json(
-          { success: false, message: "Order is not shipped yet" },
-          { status: 400 }
-        );
+        return NextResponse.json({ success: false, message: "Order is not shipped yet" }, { status: 400 });
       }
       order.orderStatus = "delivered";
       order.deliveredAt = new Date();
+      pushActivity(order, "status_changed", "Customer confirmed delivery", session);
       await order.save();
       return NextResponse.json({ success: true, data: order });
     }
 
-    // ===== ADMIN: status updates =====
-    if (!isAdmin) {
-      return NextResponse.json({ success: false, message: "Admin access required" }, { status: 401 });
+    // ===== STAFF: status / address / hold updates =====
+    if (!(await hasPermission(session, "orders_update"))) {
+      return NextResponse.json({ success: false, message: "No permission" }, { status: 403 });
     }
 
-    const { orderStatus, paymentStatus } = body;
+    const { orderStatus, paymentStatus, onHold, holdReason, shippingAddress } = body;
 
     if (orderStatus && orderStatus !== order.orderStatus) {
+      if (!isValidTransition(order.orderStatus, orderStatus)) {
+        return NextResponse.json(
+          { success: false, message: `Cannot move an order from "${order.orderStatus}" to "${orderStatus}"` },
+          { status: 400 }
+        );
+      }
       if (orderStatus === "shipped" && !order.shippedAt) order.shippedAt = new Date();
       if (orderStatus === "delivered" && !order.deliveredAt) order.deliveredAt = new Date();
       // cancel korle stock fire dei
@@ -78,17 +101,40 @@ export async function PUT(request, { params }) {
           await Product.findByIdAndUpdate(it.product, { $inc: { stock: it.quantity } });
         }
       }
+      pushActivity(order, "status_changed", `Order status changed from "${order.orderStatus}" to "${orderStatus}"`, session);
       order.orderStatus = orderStatus;
     }
 
     if (paymentStatus && paymentStatus !== order.paymentStatus) {
+      pushActivity(order, "payment_status_changed", `Payment status changed from "${order.paymentStatus}" to "${paymentStatus}"`, session);
       order.paymentStatus = paymentStatus;
+    }
+
+    if (typeof onHold === "boolean" && onHold !== order.onHold) {
+      order.onHold = onHold;
+      order.holdReason = onHold ? holdReason || "" : "";
+      pushActivity(order, onHold ? "hold" : "hold_released", onHold ? `Order put on hold${holdReason ? ": " + holdReason : ""}` : "Hold released", session);
+    }
+
+    if (shippingAddress && typeof shippingAddress === "object") {
+      const next = {
+        fullName: shippingAddress.fullName?.trim() || order.shippingAddress.fullName,
+        phone: shippingAddress.phone?.trim() || order.shippingAddress.phone,
+        address: shippingAddress.address?.trim() || order.shippingAddress.address,
+        city: shippingAddress.city?.trim() || order.shippingAddress.city,
+      };
+      const changed = JSON.stringify(next) !== JSON.stringify(order.shippingAddress.toObject?.() ?? order.shippingAddress);
+      if (changed) {
+        order.shippingAddress = next;
+        pushActivity(order, "address_changed", "Shipping address updated", session);
+      }
     }
 
     await order.save();
     return NextResponse.json({ success: true, data: order });
   } catch (error) {
-    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    console.error("[orders:update]", error);
+    return NextResponse.json({ success: false, message: "Something went wrong" }, { status: 500 });
   }
 }
 
@@ -97,8 +143,8 @@ export async function DELETE(request, { params }) {
   try {
     await connectDB();
     const session = await getServerSession(authOptions);
-    if (!session || session.user?.role !== "admin") {
-      return NextResponse.json({ success: false, message: "Admin access required" }, { status: 401 });
+    if (!session?.user || !(await hasPermission(session, "orders_update"))) {
+      return NextResponse.json({ success: false, message: "No permission" }, { status: 403 });
     }
 
     const order = await Order.findById(params.id);
@@ -117,6 +163,7 @@ export async function DELETE(request, { params }) {
     await Order.findByIdAndDelete(params.id);
     return NextResponse.json({ success: true, message: "Order deleted" });
   } catch (error) {
-    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    console.error("[orders:delete]", error);
+    return NextResponse.json({ success: false, message: "Something went wrong" }, { status: 500 });
   }
 }

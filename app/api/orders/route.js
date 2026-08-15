@@ -8,6 +8,7 @@ import User from "@/models/User";
 import Discount from "@/models/Discount";
 import ShippingMethod from "@/models/ShippingMethod";
 import { getEffectivePrice } from "@/lib/utils";
+import { hasPermission } from "@/lib/rbac";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 
 const THIRTY_DAYS = 30 * 24 * 60 * 60 * 1000;
@@ -26,7 +27,12 @@ export async function GET(request) {
       { $set: { orderStatus: "delivered", deliveredAt: new Date() } }
     );
 
-    const query = session.user.role === "admin" ? {} : { user: session.user.id };
+    // Staff with the "orders" permission see every order (previously this
+    // was hardcoded to role === "admin", which silently blocked the
+    // Order Processing / Support staff roles from seeing anything but
+    // their own — a real RBAC gap now fixed).
+    const isStaff = await hasPermission(session, "orders");
+    const query = isStaff ? {} : { user: session.user.id };
     const orders = await Order.find(query)
       .populate("user", "name email")
       .sort({ createdAt: -1 })
@@ -46,7 +52,7 @@ export async function POST(request) {
       return NextResponse.json({ success: false, message: "Login required" }, { status: 401 });
     }
 
-    const isAdmin = session.user.role === "admin";
+    const isAdmin = await hasPermission(session, "orders_update");
     const { items, shippingAddress, paymentMethod, userId, paymentStatus, discountCode, shippingMethodId } = await request.json();
 
     // ADMIN: customer er jonno order create
