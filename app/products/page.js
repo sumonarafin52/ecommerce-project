@@ -3,6 +3,7 @@ import Link from "next/link";
 import connectDB from "@/lib/db";
 import Product from "@/models/Product";
 import ProductGrid from "@/components/product/ProductGrid";
+import FilterLink from "@/components/product/FilterLink";
 import { searchProducts } from "@/lib/productSearch";
 
 export const dynamic = "force-dynamic";
@@ -103,7 +104,7 @@ export default async function ProductsPage({ searchParams }) {
     : "All Products";
 
   const filterRow = (checked, label, href) => (
-    <Link href={href} className="flex items-center gap-2.5 text-[13.5px] text-ink-soft hover:text-indigo-900 py-1">
+    <FilterLink href={href} className="flex items-center gap-2.5 text-[13.5px] text-ink-soft hover:text-indigo-900 py-1">
       <span className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 ${checked ? "bg-indigo-900 border-indigo-900" : "border-line"}`}>
         {checked && (
           <svg className="w-2.5 h-2.5 text-white" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
@@ -112,7 +113,7 @@ export default async function ProductsPage({ searchParams }) {
         )}
       </span>
       {label}
-    </Link>
+    </FilterLink>
   );
 
   const hasActiveFilters = category || brand || deals || inStock || min || max || minRating;
@@ -174,9 +175,9 @@ export default async function ProductsPage({ searchParams }) {
             </div>
 
             {hasActiveFilters && (
-              <Link href={clearFiltersUrl()} className="block text-center border border-line hover:border-indigo-700 text-ink-soft font-bold text-xs py-2 rounded-lg">
+              <FilterLink href={clearFiltersUrl()} className="block text-center border border-line hover:border-indigo-700 text-ink-soft font-bold text-xs py-2 rounded-lg">
                 Clear filters
-              </Link>
+              </FilterLink>
             )}
           </aside>
 
@@ -193,7 +194,7 @@ export default async function ProductsPage({ searchParams }) {
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-xs text-ink-muted font-bold">Sort:</span>
                 {sortOptions.map((o) => (
-                  <Link
+                  <FilterLink
                     key={o.key}
                     href={buildUrl({ sort: o.key === "new" ? null : o.key })}
                     className={`px-3 py-1.5 rounded-full text-xs font-bold border transition-colors ${
@@ -203,7 +204,7 @@ export default async function ProductsPage({ searchParams }) {
                     }`}
                   >
                     {o.label}
-                  </Link>
+                  </FilterLink>
                 ))}
               </div>
             </div>
@@ -212,21 +213,21 @@ export default async function ProductsPage({ searchParams }) {
 
             {totalPages > 1 && (
               <div className="flex items-center justify-center gap-2 pt-8">
-                <Link
+                <FilterLink
                   href={buildUrl({ page: Math.max(1, page - 1) })}
                   aria-disabled={page <= 1}
                   className={`px-3 py-1.5 rounded-full text-xs font-bold border border-line text-ink-soft hover:border-indigo-700 hover:text-indigo-900 transition-colors ${page <= 1 ? "pointer-events-none opacity-40" : ""}`}
                 >
                   ← Prev
-                </Link>
+                </FilterLink>
                 <span className="text-xs text-ink-muted px-2">Page {page} of {totalPages}</span>
-                <Link
+                <FilterLink
                   href={buildUrl({ page: Math.min(totalPages, page + 1) })}
                   aria-disabled={page >= totalPages}
                   className={`px-3 py-1.5 rounded-full text-xs font-bold border border-line text-ink-soft hover:border-indigo-700 hover:text-indigo-900 transition-colors ${page >= totalPages ? "pointer-events-none opacity-40" : ""}`}
                 >
                   Next →
-                </Link>
+                </FilterLink>
               </div>
             )}
           </div>

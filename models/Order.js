@@ -7,6 +7,9 @@ const orderItemSchema = new mongoose.Schema({
   sku: { type: String, default: "" }, // snapshot at order time, for invoices
   quantity: { type: Number, required: true, min: 1 },
   price: { type: Number, required: true },
+  // matches Product.combinations[].key (e.g. "S / Black") when this line
+  // is a specific variant — empty string for products without variants
+  combinationKey: { type: String, default: "" },
 });
 
 const shipmentEventSchema = new mongoose.Schema(
@@ -79,6 +82,13 @@ const orderSchema = new mongoose.Schema(
       phone: { type: String, required: true },
       address: { type: String, required: true },
       city: { type: String, required: true },
+      // Optional — captured by the country/state picker on checkout.
+      // "state" holds whatever the selected country calls its
+      // state/province/district; kept as free text since names/levels
+      // vary by country rather than tying this to a specific dataset.
+      country: { type: String, default: "" },
+      state: { type: String, default: "" },
+      postalCode: { type: String, default: "" },
     },
     paymentMethod: { type: String, enum: ["sslcommerz", "cod"], default: "sslcommerz" },
     paymentStatus: { type: String, enum: ["pending", "paid", "failed", "refunded"], default: "pending" },

@@ -1,11 +1,15 @@
 // app/api/orders/[id]/route.js
+export const dynamic = "force-dynamic";
+
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import connectDB from "@/lib/db";
 import Order from "@/models/Order";
 import Product from "@/models/Product";
 import { hasPermission } from "@/lib/rbac";
-import { isValidTransition, putOnHold, releaseHold } from "@/lib/orderStatus";
+import { isValidTransition, putOnHold, releaseHold, ORDER_STATUS_LABELS } from "@/lib/orderStatus";
+import { notify } from "@/lib/notify";
+import { adjustStock } from "@/lib/productStock";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 
 function pushActivity(order, type, message, session) {
@@ -97,9 +101,7 @@ export async function PUT(request, { params }) {
       if (orderStatus === "delivered" && !order.deliveredAt) order.deliveredAt = new Date();
       // cancel korle stock fire dei
       if (orderStatus === "cancelled") {
-        for (const it of order.items) {
-          await Product.findByIdAndUpdate(it.product, { $inc: { stock: it.quantity } });
-        }
+        await adjustStock(order.items, 1);
       }
       pushActivity(order, "status_changed", `Order status changed from "${order.orderStatus}" to "${orderStatus}"`, session);
       order.orderStatus = orderStatus;
@@ -108,6 +110,24 @@ export async function PUT(request, { params }) {
       if (orderStatus !== "on_hold") {
         order.previousStatus = undefined;
         order.holdReason = "";
+      }
+
+      const statusMessages = {
+        processing: `Your order #${order.orderNumber} is now being processed.`,
+        shipped: `Your order #${order.orderNumber} has shipped and is on its way.`,
+        delivered: `Your order #${order.orderNumber} has been delivered. We hope you love it!`,
+        cancelled: `Your order #${order.orderNumber} was cancelled.`,
+        on_hold: `Your order #${order.orderNumber} is on hold — we'll be in touch.`,
+        returned: `Your order #${order.orderNumber} was marked as returned.`,
+      };
+      if (statusMessages[orderStatus]) {
+        await notify({
+          user: order.user,
+          type: "order_status",
+          title: `Order ${ORDER_STATUS_LABELS[orderStatus] || orderStatus}`,
+          message: statusMessages[orderStatus],
+          link: "/profile",
+        });
       }
     }
 
@@ -181,9 +201,7 @@ export async function DELETE(request, { params }) {
     // stock fire dei sudhu jodi order ekhono shipped na hoy
     // cancelled order er stock age thekei return kora, delivered mane product chole geche
     if (["pending", "processing", "on_hold"].includes(order.orderStatus)) {
-      for (const it of order.items) {
-        await Product.findByIdAndUpdate(it.product, { $inc: { stock: it.quantity } });
-      }
+      await adjustStock(order.items, 1);
     }
 
     await Order.findByIdAndDelete(params.id);

@@ -6,7 +6,7 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
 import toast from "react-hot-toast";
-import { formatCurrency, formatDate } from "@/lib/utils";
+import { formatCurrency, formatDate, formatDateTime } from "@/lib/utils";
 import { ORDER_STATUS_LABELS, ORDER_STATUS_COLORS, VALID_TRANSITIONS } from "@/lib/orderStatus";
 
 const selectCls =
@@ -22,6 +22,17 @@ const payColors = {
   failed: "bg-red-500/15 text-red-400",
   refunded: "bg-zinc-500/15 text-zinc-400",
 };
+const ACTIVITY_STYLE = {
+  status_changed: { icon: "🔄", color: "text-accent" },
+  payment_status_changed: { icon: "💳", color: "text-blue-400" },
+  hold: { icon: "⏸️", color: "text-amber-400" },
+  hold_released: { icon: "▶️", color: "text-green-400" },
+  address_changed: { icon: "📍", color: "text-zinc-300" },
+  shipment_created: { icon: "📦", color: "text-blue-400" },
+  refund: { icon: "💰", color: "text-rose-400" },
+  note: { icon: "📝", color: "text-zinc-300" },
+};
+
 const fulfillColors = {
   unfulfilled: "bg-zinc-500/15 text-zinc-400",
   partially_fulfilled: "bg-amber-500/15 text-amber-400",
@@ -564,15 +575,23 @@ export default function OrderDetailsPage() {
 
             {/* activity timeline */}
             <div className={card}>
-              <h2 className="text-sm font-bold text-white mb-4">Activity</h2>
+              <h2 className="text-sm font-bold text-white mb-4">Activity Timeline</h2>
               {order.activity?.length > 0 ? (
-                <div className="space-y-3 pl-3 border-l-2 border-white/10">
-                  {order.activity.slice().reverse().map((a, i) => (
-                    <div key={i} className="text-sm">
-                      <p className="text-zinc-200">{a.message}</p>
-                      <p className="text-xs text-zinc-500">{formatDate(a.at)} · {a.by?.name || "System"}</p>
-                    </div>
-                  ))}
+                <div className="space-y-4 pl-4 border-l-2 border-white/10">
+                  {order.activity.slice().reverse().map((a, i) => {
+                    const style = ACTIVITY_STYLE[a.type] || { icon: "•", color: "text-zinc-300" };
+                    return (
+                      <div key={i} className="relative text-sm">
+                        <span className="absolute -left-[22px] top-0.5 w-4 h-4 flex items-center justify-center text-[11px] bg-primary-light rounded-full border border-white/10">
+                          {style.icon}
+                        </span>
+                        <p className={`font-medium ${style.color}`}>{a.message}</p>
+                        <p className="text-xs text-zinc-500 mt-0.5">
+                          {formatDateTime(a.at)} · by {a.by?.name || "System"}
+                        </p>
+                      </div>
+                    );
+                  })}
                 </div>
               ) : (
                 <p className="text-sm text-zinc-500">No activity recorded yet.</p>
@@ -685,7 +704,12 @@ export default function OrderDetailsPage() {
                   <input className={`${inputCls} w-full`} placeholder="Full name" value={addressForm.fullName} onChange={(e) => setAddressForm((f) => ({ ...f, fullName: e.target.value }))} />
                   <input className={`${inputCls} w-full`} placeholder="Phone" value={addressForm.phone} onChange={(e) => setAddressForm((f) => ({ ...f, phone: e.target.value }))} />
                   <input className={`${inputCls} w-full`} placeholder="Address" value={addressForm.address} onChange={(e) => setAddressForm((f) => ({ ...f, address: e.target.value }))} />
-                  <input className={`${inputCls} w-full`} placeholder="City" value={addressForm.city} onChange={(e) => setAddressForm((f) => ({ ...f, city: e.target.value }))} />
+                  <div className="grid grid-cols-2 gap-2">
+                    <input className={inputCls} placeholder="City" value={addressForm.city} onChange={(e) => setAddressForm((f) => ({ ...f, city: e.target.value }))} />
+                    <input className={inputCls} placeholder="State/District" value={addressForm.state || ""} onChange={(e) => setAddressForm((f) => ({ ...f, state: e.target.value }))} />
+                    <input className={inputCls} placeholder="Postal code" value={addressForm.postalCode || ""} onChange={(e) => setAddressForm((f) => ({ ...f, postalCode: e.target.value }))} />
+                    <input className={inputCls} placeholder="Country" value={addressForm.country || ""} onChange={(e) => setAddressForm((f) => ({ ...f, country: e.target.value }))} />
+                  </div>
                   <div className="flex justify-end gap-2 pt-1">
                     <button onClick={() => setEditingAddress(false)} className="text-xs font-bold text-zinc-400 hover:text-white px-2 py-1.5">Cancel</button>
                     <button onClick={saveAddress} disabled={busy} className="text-xs font-bold bg-accent text-primary px-3 py-1.5 rounded-md disabled:opacity-50">Save</button>
@@ -695,7 +719,12 @@ export default function OrderDetailsPage() {
                 <div className="text-sm text-zinc-300 bg-black/20 rounded-md p-3 border border-white/5 space-y-1">
                   <p>{order.shippingAddress?.fullName}</p>
                   <p className="text-zinc-500">{order.shippingAddress?.phone}</p>
-                  <p className="text-zinc-500">{order.shippingAddress?.address}, {order.shippingAddress?.city}</p>
+                  <p className="text-zinc-500">
+                    {order.shippingAddress?.address}, {order.shippingAddress?.city}
+                    {order.shippingAddress?.state ? `, ${order.shippingAddress.state}` : ""}
+                    {order.shippingAddress?.postalCode ? ` ${order.shippingAddress.postalCode}` : ""}
+                    {order.shippingAddress?.country ? `, ${order.shippingAddress.country}` : ""}
+                  </p>
                 </div>
               )}
             </div>

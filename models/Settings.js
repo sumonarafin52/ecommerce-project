@@ -73,6 +73,13 @@ const settingsSchema = new mongoose.Schema(
       heroSlides: [heroSlideSchema],
       banners: [bannerSchema],
       sections: [homeSectionSchema],
+      // "Today's Deals" and "Best Sellers" used to always render regardless
+      // of admin preference — these let them be turned off like any other
+      // homepage block, without needing to migrate them into the fully
+      // custom `sections` array (they stay in their fixed position, just
+      // toggleable).
+      showDeals: { type: Boolean, default: true },
+      showBestSellers: { type: Boolean, default: true },
     },
     // payment: keyed by gateway id (see lib/paymentGateways.js), e.g.
     //   { sslcommerz: { enabled, mode: "sandbox"|"live", fields: { storeId, storePassword } },
@@ -83,6 +90,19 @@ const settingsSchema = new mongoose.Schema(
     payment: { type: mongoose.Schema.Types.Mixed, default: {} },
     // shipping: reserved for the next phase — same reasoning.
     shipping: { type: mongoose.Schema.Types.Mixed, default: {} },
+    // Transactional email (order confirmations, status updates, refunds,
+    // shipment tracking) — sent via SMTP. smtpPassword is encrypted the
+    // same way payment-gateway secrets are (see lib/crypto.js).
+    email: {
+      enabled: { type: Boolean, default: false },
+      fromName: { type: String, default: "" },
+      fromEmail: { type: String, default: "" },
+      smtpHost: { type: String, default: "" },
+      smtpPort: { type: Number, default: 587 },
+      smtpSecure: { type: Boolean, default: false }, // true for port 465, false for 587/STARTTLS
+      smtpUser: { type: String, default: "" },
+      smtpPassword: { type: String, default: "" }, // encrypted at rest
+    },
     billing: {
       // Store Billing Information (Settings → Billing → Business Info)
       legalName: { type: String, default: "" },

@@ -5,6 +5,7 @@ import connectDB from "@/lib/db";
 import Order from "@/models/Order";
 import { hasPermission } from "@/lib/rbac";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
+import { notify } from "@/lib/notify";
 
 export async function GET(request, { params }) {
   try {
@@ -74,6 +75,24 @@ export async function PUT(request, { params }) {
       if (body.addEvent.status === "delivered") {
         order.orderStatus = "delivered";
         if (!order.deliveredAt) order.deliveredAt = new Date();
+      }
+
+      const trackingMessages = {
+        shipped: `Your order #${order.orderNumber} has shipped.`,
+        in_transit: `Your order #${order.orderNumber} is in transit.`,
+        out_for_delivery: `Your order #${order.orderNumber} is out for delivery.`,
+        delivered: `Your order #${order.orderNumber} has been delivered.`,
+        failed: `We couldn't deliver order #${order.orderNumber} — we'll be in touch about next steps.`,
+        returned: `Order #${order.orderNumber} has been marked as returned.`,
+      };
+      if (trackingMessages[body.addEvent.status]) {
+        await notify({
+          user: order.user,
+          type: "shipment",
+          title: "Delivery update",
+          message: trackingMessages[body.addEvent.status],
+          link: "/profile",
+        });
       }
     }
 

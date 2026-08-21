@@ -4,7 +4,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
+import { useSession } from "next-auth/react";
 import useCartStore from "@/store/cartStore";
+import useWishlistStore from "@/store/wishlistStore";
 import ProductGrid from "@/components/product/ProductGrid";
 import { formatCurrency, getEffectivePrice, getDiscountPercentage } from "@/lib/utils";
 import Reviews from "@/components/product/Reviews";
@@ -32,9 +34,12 @@ function Stars({ rating, count }) {
 export default function ProductDetailsPage() {
   const params = useParams();
   const router = useRouter();
+  const { data: session } = useSession();
   const addItem = useCartStore((s) => s.addItem);
 
   const [product, setProduct] = useState(null);
+  const wished = useWishlistStore((s) => (product ? s.has(product._id) : false));
+  const toggleWishlist = useWishlistStore((s) => s.toggle);
   const [related, setRelated] = useState([]);
   const [loading, setLoading] = useState(true);
   const [imageIndex, setImageIndex] = useState(0);
@@ -82,6 +87,11 @@ export default function ProductDetailsPage() {
   // ===== MATCHED VARIANT COMBINATION =====
   const matchedCombo = useMemo(() => {
     if (!product?.combinations?.length || !product?.options?.length) return null;
+    // every option type the product defines must be chosen — a partial
+    // selection (e.g. Size picked but not Color) should not resolve to
+    // some arbitrary combination that happens to match on Size alone
+    const allSelected = product.options.every((opt) => selected[opt.name] !== undefined);
+    if (!allSelected) return null;
     return (
       product.combinations.find(
         (c) => c.active !== false && Object.entries(selected).every(([k, v]) => (c.options || {})[k] === v)
@@ -126,10 +136,19 @@ export default function ProductDetailsPage() {
   }
 
   const outOfStock = displayStock <= 0;
+  const needsSelection = product.options?.length > 0 && !matchedCombo;
+  const missingOptions = needsSelection ? product.options.filter((o) => selected[o.name] === undefined).map((o) => o.name) : [];
 
   const handleAdd = () => {
-    const item = matchedCombo?.price
-      ? { ...product, name: `${product.name} (${matchedCombo.key})`, price: displayPrice, discountPrice: 0 }
+    const item = matchedCombo
+      ? {
+          ...product,
+          name: `${product.name} (${matchedCombo.key})`,
+          price: displayPrice,
+          discountPrice: 0,
+          stock: matchedCombo.stock,
+          combinationKey: matchedCombo.key,
+        }
       : product;
     for (let i = 0; i < quantity; i++) addItem(item);
     setAdded(true);
@@ -137,11 +156,26 @@ export default function ProductDetailsPage() {
   };
 
   const handleBuyNow = () => {
-    const item = matchedCombo?.price
-      ? { ...product, name: `${product.name} (${matchedCombo.key})`, price: displayPrice, discountPrice: 0 }
+    const item = matchedCombo
+      ? {
+          ...product,
+          name: `${product.name} (${matchedCombo.key})`,
+          price: displayPrice,
+          discountPrice: 0,
+          stock: matchedCombo.stock,
+          combinationKey: matchedCombo.key,
+        }
       : product;
     for (let i = 0; i < quantity; i++) addItem(item);
     router.push("/cart");
+  };
+
+  const handleWishlist = () => {
+    if (!session) {
+      router.push(`/login?callbackUrl=${encodeURIComponent(`/products/${params.id}`)}`);
+      return;
+    }
+    toggleWishlist(product._id);
   };
 
   return (
@@ -274,12 +308,18 @@ export default function ProductDetailsPage() {
               </div>
             </div>
 
+            {needsSelection && (
+              <p className="text-xs font-semibold text-brick">
+                Please select {missingOptions.join(" and ")} before adding to cart.
+              </p>
+            )}
+
             <div className="flex gap-3 pt-2">
               <button
                 onClick={handleAdd}
-                disabled={outOfStock}
+                disabled={outOfStock || needsSelection}
                 className={`flex-1 py-3.5 rounded-lg font-bold text-sm transition-colors ${
-                  outOfStock
+                  outOfStock || needsSelection
                     ? "bg-line text-ink-muted cursor-not-allowed"
                     : added
                     ? "bg-green-700 text-white"
@@ -290,10 +330,17 @@ export default function ProductDetailsPage() {
               </button>
               <button
                 onClick={handleBuyNow}
-                disabled={outOfStock}
+                disabled={outOfStock || needsSelection}
                 className="flex-1 py-3.5 rounded-lg font-bold text-sm bg-indigo-950 hover:bg-indigo-900 text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 Buy Now
+              </button>
+              <button
+                onClick={handleWishlist}
+                aria-label={wished ? "Remove from wishlist" : "Add to wishlist"}
+                className="w-[52px] shrink-0 rounded-lg border-[1.5px] border-line hover:border-brick/40 flex items-center justify-center text-lg transition-colors"
+              >
+                {wished ? "❤️" : "🤍"}
               </button>
             </div>
 

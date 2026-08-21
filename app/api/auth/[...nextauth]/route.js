@@ -78,11 +78,18 @@ export const authOptions = {
     }),
   ],
   callbacks: {
-    async jwt({ token, user }) {
+    async jwt({ token, user, trigger, session }) {
       if (user) {
         token.id = user.id;
         token.role = user.role;
         token.email = user.email;
+      }
+      // fired by the client's `update({ name, email })` call after a
+      // profile edit — merges the new values into the token without
+      // requiring the person to sign in again
+      if (trigger === "update" && session) {
+        if (session.name) token.name = session.name;
+        if (session.email) token.email = session.email;
       }
       return token;
     },

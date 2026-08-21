@@ -5,6 +5,7 @@ import connectDB from "@/lib/db";
 import Order from "@/models/Order";
 import { hasPermission } from "@/lib/rbac";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
+import { notify } from "@/lib/notify";
 
 // Update one shipment's carrier/tracking/status, or append a new tracking
 // timeline event to it (mirrors the pattern already used by the legacy
@@ -63,6 +64,24 @@ export async function PUT(request, { params }) {
       if (allDelivered && order.orderStatus === "shipped") {
         order.orderStatus = "delivered";
         if (!order.deliveredAt) order.deliveredAt = new Date();
+      }
+
+      const trackingMessages = {
+        shipped: `A shipment for order #${order.orderNumber} is on its way.`,
+        in_transit: `A shipment for order #${order.orderNumber} is in transit.`,
+        out_for_delivery: `A shipment for order #${order.orderNumber} is out for delivery.`,
+        delivered: `A shipment for order #${order.orderNumber} has been delivered.`,
+        failed: `We couldn't deliver part of order #${order.orderNumber} — we'll be in touch about next steps.`,
+        returned: `Part of order #${order.orderNumber} has been marked as returned.`,
+      };
+      if (trackingMessages[body.addEvent.status]) {
+        await notify({
+          user: order.user,
+          type: "shipment",
+          title: "Delivery update",
+          message: trackingMessages[body.addEvent.status],
+          link: "/profile",
+        });
       }
     }
 

@@ -30,9 +30,46 @@ function uid() {
   return Math.random().toString(36).slice(2, 10);
 }
 
+// Swaps item `i` with its neighbor in `direction` (-1 up, +1 down) and
+// re-numbers `order` to match the new array positions — used by hero
+// slides, banners, and sections so each has simple, reliable reordering
+// without needing a drag-and-drop library.
+function reorder(list, i, direction) {
+  const j = i + direction;
+  if (j < 0 || j >= list.length) return list;
+  const next = [...list];
+  [next[i], next[j]] = [next[j], next[i]];
+  return next.map((item, idx) => ({ ...item, order: idx }));
+}
+
 // Field/Input/Textarea/SaveBar/ImageUploader now live in
 // components/admin/ui — promoted there so Payment Methods and Billing can
 // reuse the exact same primitives instead of duplicating them per page.
+
+function ReorderButtons({ index, count, onMove }) {
+  return (
+    <div className="flex items-center gap-0.5">
+      <button
+        type="button"
+        onClick={() => onMove(-1)}
+        disabled={index === 0}
+        aria-label="Move up"
+        className="w-6 h-6 flex items-center justify-center rounded admin-text-muted hover:text-accent hover:bg-accent/10 disabled:opacity-25 disabled:hover:bg-transparent transition-colors"
+      >
+        ▲
+      </button>
+      <button
+        type="button"
+        onClick={() => onMove(1)}
+        disabled={index === count - 1}
+        aria-label="Move down"
+        className="w-6 h-6 flex items-center justify-center rounded admin-text-muted hover:text-accent hover:bg-accent/10 disabled:opacity-25 disabled:hover:bg-transparent transition-colors"
+      >
+        ▼
+      </button>
+    </div>
+  );
+}
 
 export default function GeneralSettingsPage() {
   const { can, loading: permLoading } = usePermissions();
@@ -45,13 +82,15 @@ export default function GeneralSettingsPage() {
   const [heroSlides, setHeroSlides] = useState([]);
   const [banners, setBanners] = useState([]);
   const [sections, setSections] = useState([]);
+  const [showDeals, setShowDeals] = useState(true);
+  const [showBestSellers, setShowBestSellers] = useState(true);
 
   const [categories, setCategories] = useState([]);
   const [products, setProducts] = useState([]);
 
   const load = () => {
     setLoading(true);
-    fetch("/api/settings")
+    fetch("/api/settings", { cache: "no-store" })
       .then((r) => r.json())
       .then((res) => {
         if (res.success) {
@@ -59,6 +98,8 @@ export default function GeneralSettingsPage() {
           setHeroSlides(res.data.homepage?.heroSlides || []);
           setBanners(res.data.homepage?.banners || []);
           setSections(res.data.homepage?.sections || []);
+          setShowDeals(res.data.homepage?.showDeals !== false);
+          setShowBestSellers(res.data.homepage?.showBestSellers !== false);
           setDirty(false);
         }
       })
@@ -81,7 +122,7 @@ export default function GeneralSettingsPage() {
       const res = await fetch("/api/settings", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ general, homepage: { heroSlides, banners, sections } }),
+        body: JSON.stringify({ general, homepage: { heroSlides, banners, sections, showDeals, showBestSellers } }),
       }).then((r) => r.json());
       if (res.success) {
         toast.success("Settings saved");
@@ -90,6 +131,8 @@ export default function GeneralSettingsPage() {
         setHeroSlides(res.data.homepage.heroSlides);
         setBanners(res.data.homepage.banners);
         setSections(res.data.homepage.sections);
+        setShowDeals(res.data.homepage.showDeals !== false);
+        setShowBestSellers(res.data.homepage.showBestSellers !== false);
       } else {
         toast.error(res.message || "Failed to save");
       }
@@ -223,6 +266,7 @@ export default function GeneralSettingsPage() {
             <div key={slide._id || i} className="admin-card rounded-xl p-5">
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-2">
+                  <ReorderButtons index={i} count={heroSlides.length} onMove={(dir) => { setHeroSlides(reorder(heroSlides, i, dir)); markDirty(); }} />
                   <span className="text-xs font-bold admin-text-muted">Slide {i + 1}</span>
                   {!slide.active && <Badge tone="neutral">Hidden</Badge>}
                 </div>
@@ -282,9 +326,10 @@ export default function GeneralSettingsPage() {
           <div className="grid sm:grid-cols-2 gap-4">
             {banners.map((b, i) => (
               <div key={b._id || i} className="admin-card rounded-xl p-5">
-                <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2 mb-3">
+                  <ReorderButtons index={i} count={banners.length} onMove={(dir) => { setBanners(reorder(banners, i, dir)); markDirty(); }} />
                   <span className="text-xs font-bold admin-text-muted">Banner {i + 1}</span>
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-3 ml-auto">
                     <label className="flex items-center gap-1.5 text-xs font-bold admin-text-secondary cursor-pointer">
                       <input type="checkbox" checked={b.active} onChange={(e) => { const next = [...banners]; next[i] = { ...b, active: e.target.checked }; setBanners(next); markDirty(); }} />
                       Active
@@ -311,6 +356,24 @@ export default function GeneralSettingsPage() {
 
       {tab === "sections" && (
         <div className="space-y-4">
+          <div className="admin-card rounded-xl p-5">
+            <p className="text-xs font-bold admin-text-muted uppercase tracking-wide mb-3">Built-in blocks</p>
+            <div className="flex flex-wrap gap-5">
+              <label className="flex items-center gap-2 text-sm font-semibold admin-text-secondary cursor-pointer">
+                <input type="checkbox" checked={showDeals} onChange={(e) => { setShowDeals(e.target.checked); markDirty(); }} className="w-4 h-4 accent-accent" />
+                Show "Today's Deals"
+              </label>
+              <label className="flex items-center gap-2 text-sm font-semibold admin-text-secondary cursor-pointer">
+                <input type="checkbox" checked={showBestSellers} onChange={(e) => { setShowBestSellers(e.target.checked); markDirty(); }} className="w-4 h-4 accent-accent" />
+                Show "Best Sellers"
+              </label>
+            </div>
+            <p className="text-[11px] admin-text-muted mt-2.5">
+              These two always sit in a fixed spot on the homepage (right after the trust badges). For full control over
+              title, source, and position, add a custom section below instead.
+            </p>
+          </div>
+
           <div className="flex items-center justify-between">
             <p className="text-xs admin-text-muted max-w-md">
               Control the product grid sections on the homepage — what they're called, where the products come from, and whether they're visible.
@@ -331,9 +394,10 @@ export default function GeneralSettingsPage() {
 
           {sections.map((s, i) => (
             <div key={s._id || i} className="admin-card rounded-xl p-5">
-              <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2 mb-4">
+                <ReorderButtons index={i} count={sections.length} onMove={(dir) => { setSections(reorder(sections, i, dir)); markDirty(); }} />
                 <span className="text-xs font-bold admin-text-muted">Section {i + 1}</span>
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-3 ml-auto">
                   <label className="flex items-center gap-1.5 text-xs font-bold admin-text-secondary cursor-pointer">
                     <input type="checkbox" checked={s.visible} onChange={(e) => { const next = [...sections]; next[i] = { ...s, visible: e.target.checked }; setSections(next); markDirty(); }} />
                     Visible

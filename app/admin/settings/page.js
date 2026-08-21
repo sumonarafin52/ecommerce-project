@@ -34,6 +34,13 @@ const modules = [
     icon: "🚚",
     status: "ready",
   },
+  {
+    href: "/admin/settings/email",
+    title: "Email Notifications",
+    desc: "SMTP setup for order, payment, shipment & refund emails",
+    icon: "📧",
+    status: "ready",
+  },
 ];
 
 export default function SettingsHome() {

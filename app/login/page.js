@@ -27,7 +27,10 @@ export default function LoginPage() {
       setError("Invalid email or password");
       return;
     }
-    router.push("/");
+    // only ever redirect to a same-site path from this — never trust an
+    // external URL from a query param
+    const callbackUrl = new URLSearchParams(window.location.search).get("callbackUrl");
+    router.push(callbackUrl && callbackUrl.startsWith("/") ? callbackUrl : "/");
     router.refresh();
   };
 

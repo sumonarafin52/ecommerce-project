@@ -1,4 +1,6 @@
 // app/api/shipping/carriers/route.js
+export const dynamic = "force-dynamic";
+
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import connectDB from "@/lib/db";

@@ -5,7 +5,8 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
-import useCartStore from "@/store/cartStore";
+import useCartStore, { cartKeyOf } from "@/store/cartStore";
+import useWishlistStore from "@/store/wishlistStore";
 import { formatCurrency, getEffectivePrice } from "@/lib/utils";
 
 const translations = {
@@ -59,8 +60,11 @@ const translations = {
 
 export default function Header() {
   const router = useRouter();
-  const { data: session } = useSession();
+  const { data: session, status } = useSession();
   const cartCount = useCartStore((s) => s.items.reduce((n, i) => n + i.quantity, 0));
+  const cartItems = useCartStore((s) => s.items);
+  const cartTotal = useCartStore((s) => s.getTotalPrice());
+  const removeCartItem = useCartStore((s) => s.removeItem);
 
   const [lang, setLang] = useState("en");
   const [country, setCountry] = useState("");
@@ -70,6 +74,7 @@ export default function Header() {
   const [showDropdown, setShowDropdown] = useState(false);
   const [openMenu, setOpenMenu] = useState(null);
   const [categories, setCategories] = useState([]);
+  const [notifications, setNotifications] = useState([]);
   // store branding — falls back to the original hardcoded name/no-logo look
   // until Settings → General is configured, so nothing changes visually
   // for stores that haven't set a custom name/logo yet
@@ -92,7 +97,7 @@ export default function Header() {
         if (res.success) setCategories(res.data);
       })
       .catch(() => {});
-    fetch("/api/settings")
+    fetch("/api/settings", { cache: "no-store" })
       .then((r) => r.json())
       .then((res) => {
         if (res.success && res.data.general?.storeName) {
@@ -105,6 +110,26 @@ export default function Header() {
       })
       .catch(() => {});
   }, []);
+
+  useEffect(() => {
+    if (status === "authenticated") useWishlistStore.getState().load();
+    else if (status === "unauthenticated") useWishlistStore.getState().reset();
+  }, [status]);
+
+  const loadNotifications = () => {
+    if (status !== "authenticated") return;
+    fetch("/api/notifications", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((res) => {
+        if (res.success) setNotifications(res.data);
+      })
+      .catch(() => {});
+  };
+
+  useEffect(() => {
+    loadNotifications();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status]);
 
   // debounced live search suggestions
   useEffect(() => {
@@ -147,7 +172,19 @@ export default function Header() {
     runSearch(query.trim());
   };
 
-  const toggle = (menu) => setOpenMenu((m) => (m === menu ? null : menu));
+  const toggle = (menu) => {
+    setOpenMenu((m) => (m === menu ? null : menu));
+    if (menu === "notifications") loadNotifications();
+  };
+
+  const markNotificationRead = async (id) => {
+    setNotifications((list) => list.map((n) => (n._id === id ? { ...n, read: true } : n)));
+    try {
+      await fetch(`/api/notifications/${id}`, { method: "PUT" });
+    } catch {}
+  };
+
+  const unreadCount = notifications.filter((n) => !n.read).length;
 
   const panelCls =
     "absolute left-0 top-full mt-2 w-60 rounded-lg bg-cream-white border border-line shadow-[0_1px_2px_rgba(15,81,50,.06),0_8px_24px_rgba(15,81,50,.07)] p-2 z-50";
@@ -287,22 +324,134 @@ export default function Header() {
             )}
           </div>
 
-          <Link href="/cart" className="relative flex items-center gap-2 text-ink font-bold text-sm shrink-0">
-            <span className="relative">
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 00-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 00-16.536-1.84M7.5 14.25L5.106 5.272M6 20.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm12.75 0a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" />
-              </svg>
-              {cartCount > 0 && (
-                <span className="absolute -top-2 -right-2 min-w-[18px] h-[18px] px-1 rounded-full bg-gold text-indigo-950 text-[10.5px] font-extrabold flex items-center justify-center">
-                  {cartCount}
-                </span>
+          {session && (
+            <div className="relative shrink-0">
+              <button onClick={() => toggle("notifications")} className="relative flex items-center text-ink" aria-label="Notifications">
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0" />
+                </svg>
+                {unreadCount > 0 && (
+                  <span className="absolute -top-1.5 -right-1.5 min-w-[16px] h-[16px] px-1 rounded-full bg-brick text-white text-[9.5px] font-extrabold flex items-center justify-center">
+                    {unreadCount > 9 ? "9+" : unreadCount}
+                  </span>
+                )}
+              </button>
+              {openMenu === "notifications" && (
+                <div className={panelCls + " w-80 max-h-96 overflow-y-auto right-0 left-auto"}>
+                  <div className="flex items-center justify-between px-2 pt-1 pb-2">
+                    <span className="text-xs font-bold text-ink-soft uppercase tracking-wide">Notifications</span>
+                    <Link href="/profile?tab=notifications" onClick={() => setOpenMenu(null)} className="text-[11px] font-bold text-indigo-900 hover:underline">
+                      View all
+                    </Link>
+                  </div>
+                  {notifications.length === 0 ? (
+                    <p className="text-xs text-ink-muted px-2 py-4 text-center">No notifications yet.</p>
+                  ) : (
+                    notifications.slice(0, 6).map((n) => (
+                      <Link
+                        key={n._id}
+                        href={n.link || "/profile"}
+                        onClick={() => {
+                          markNotificationRead(n._id);
+                          setOpenMenu(null);
+                        }}
+                        className={`block px-3 py-2 rounded-md text-left ${n.read ? "hover:bg-cream-alt" : "bg-indigo-100/50 hover:bg-indigo-100"}`}
+                      >
+                        <p className="text-xs font-bold text-ink">{n.title}</p>
+                        <p className="text-[11px] text-ink-soft mt-0.5 line-clamp-2">{n.message}</p>
+                      </Link>
+                    ))
+                  )}
+                </div>
               )}
-            </span>
-            <span className="hidden md:block">{t.cart}</span>
-          </Link>
+            </div>
+          )}
 
-          <div className="relative shrink-0">
-            <button onClick={() => toggle("account")} className="flex items-center gap-2 text-ink font-bold text-sm">
+          <div
+            className="relative shrink-0"
+            onMouseEnter={() => setOpenMenu("cart")}
+            onMouseLeave={() => setOpenMenu((m) => (m === "cart" ? null : m))}
+          >
+            <Link href="/cart" className="relative flex items-center gap-2 text-ink font-bold text-sm">
+              <span className="relative">
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 00-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 00-16.536-1.84M7.5 14.25L5.106 5.272M6 20.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm12.75 0a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" />
+                </svg>
+                {cartCount > 0 && (
+                  <span className="absolute -top-2 -right-2 min-w-[18px] h-[18px] px-1 rounded-full bg-gold text-indigo-950 text-[10.5px] font-extrabold flex items-center justify-center">
+                    {cartCount}
+                  </span>
+                )}
+              </span>
+              <span className="hidden md:block">{t.cart}</span>
+            </Link>
+
+            {openMenu === "cart" && (
+              <div className={panelCls + " w-80 right-0 left-auto"}>
+                {cartItems.length === 0 ? (
+                  <p className="text-xs text-ink-muted px-2 py-4 text-center">Your cart is empty.</p>
+                ) : (
+                  <>
+                    <div className="max-h-72 overflow-y-auto space-y-1">
+                      {cartItems.slice(0, 5).map((item) => (
+                        <div key={cartKeyOf(item)} className="flex items-center gap-2.5 px-2 py-2 rounded-md hover:bg-cream-alt">
+                          <div className="w-10 h-10 rounded-md bg-cream-alt overflow-hidden shrink-0">
+                            {item.images?.[0] && <img src={item.images[0]} alt="" className="w-full h-full object-cover" />}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-bold text-ink line-clamp-1">{item.name}</p>
+                            <p className="text-[11px] text-ink-muted">
+                              {item.quantity} × {formatCurrency(getEffectivePrice(item))}
+                            </p>
+                          </div>
+                          <button
+                            onClick={() => removeCartItem(cartKeyOf(item))}
+                            className="text-ink-muted hover:text-brick text-xs shrink-0"
+                            aria-label="Remove from cart"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ))}
+                      {cartItems.length > 5 && (
+                        <p className="text-[11px] text-ink-muted text-center pt-1">+ {cartItems.length - 5} more item(s)</p>
+                      )}
+                    </div>
+                    <div className="border-t border-line mt-2 pt-2.5 px-2 flex items-center justify-between">
+                      <span className="text-xs font-bold text-ink-soft">Subtotal</span>
+                      <span className="text-sm font-bold text-indigo-900">{formatCurrency(cartTotal)}</span>
+                    </div>
+                    <div className="px-2 pt-2 grid grid-cols-2 gap-2">
+                      <Link
+                        href="/cart"
+                        onClick={() => setOpenMenu(null)}
+                        className="text-center border border-line hover:border-indigo-700 text-ink-soft font-bold text-xs py-2 rounded-lg transition-colors"
+                      >
+                        View Cart
+                      </Link>
+                      <Link
+                        href="/checkout"
+                        onClick={() => setOpenMenu(null)}
+                        className="text-center bg-gold hover:bg-gold-dark text-indigo-950 font-bold text-xs py-2 rounded-lg transition-colors"
+                      >
+                        Checkout
+                      </Link>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div
+            className="relative shrink-0"
+            onMouseEnter={() => setOpenMenu("account")}
+            onMouseLeave={() => setOpenMenu((m) => (m === "account" ? null : m))}
+          >
+            <button
+              onClick={() => router.push(session ? "/profile" : "/login")}
+              className="flex items-center gap-2 text-ink font-bold text-sm"
+            >
               <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
               </svg>

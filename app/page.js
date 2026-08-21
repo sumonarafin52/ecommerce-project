@@ -88,6 +88,8 @@ export default async function HomePage() {
   const activeBanners = (homepage.banners || []).filter((b) => b.active !== false).sort((a, b) => a.order - b.order);
   const visibleSections = (homepage.sections || []).filter((s) => s.visible !== false).sort((a, b) => a.order - b.order);
   const customSections = await Promise.all(visibleSections.map((s) => resolveSection(s, products)));
+  const showDeals = homepage.showDeals !== false;
+  const showBestSellers = homepage.showBestSellers !== false;
 
   const sliderProducts = [...products].sort((a, b) => b.ratingAvg - a.ratingAvg).slice(0, 5);
   const deals = products.filter((p) => p.discountPrice > 0).slice(0, 8);
@@ -159,14 +161,14 @@ export default async function HomePage() {
           ))}
         </div>
 
-        {deals.length > 0 && (
+        {showDeals && deals.length > 0 && (
           <section>
             <SectionTitle eyebrow="Limited time" title="Today's Deals" href="/products?deals=1" label="See all deals" />
             <ProductGrid products={deals} />
           </section>
         )}
 
-        {topSelling.length > 0 && (
+        {showBestSellers && topSelling.length > 0 && (
           <section>
             <SectionTitle eyebrow="Trending" title="Best Sellers" href="/products?sort=top" label="See all" />
             <ProductGrid products={topSelling} />

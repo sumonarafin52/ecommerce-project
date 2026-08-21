@@ -3,22 +3,44 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
 import useCartStore from "@/store/cartStore";
-import { formatCurrency, getEffectivePrice, getDiscountPercentage } from "@/lib/utils";
+import useWishlistStore from "@/store/wishlistStore";
+import { formatCurrency, getEffectivePrice, getDiscountPercentage, getTotalStock } from "@/lib/utils";
 
 export default function ProductCard({ product }) {
+  const router = useRouter();
+  const { data: session } = useSession();
   const addItem = useCartStore((s) => s.addItem);
+  const wished = useWishlistStore((s) => s.has(product._id));
+  const toggleWishlist = useWishlistStore((s) => s.toggle);
   const [added, setAdded] = useState(false);
-  const [wished, setWished] = useState(false);
 
   const price = getEffectivePrice(product);
   const discount = getDiscountPercentage(product);
-  const outOfStock = product.stock <= 0;
+  const outOfStock = getTotalStock(product) <= 0;
+  const hasVariants = product.options?.length > 0;
 
   const handleAdd = () => {
+    if (hasVariants) {
+      // can't add a specific variant from a summary card — send them to
+      // pick one on the detail page instead of guessing
+      router.push(`/products/${product._id}`);
+      return;
+    }
     addItem(product);
     setAdded(true);
     setTimeout(() => setAdded(false), 1200);
+  };
+
+  const handleWishlist = (e) => {
+    e.preventDefault();
+    if (!session) {
+      router.push(`/login?callbackUrl=${encodeURIComponent("/products/" + product._id)}`);
+      return;
+    }
+    toggleWishlist(product._id);
   };
 
   return (
@@ -47,9 +69,9 @@ export default function ProductCard({ product }) {
             </span>
           )}
           <button
-            onClick={(e) => { e.preventDefault(); setWished((w) => !w); }}
+            onClick={handleWishlist}
             className="absolute top-2.5 right-2.5 w-8 h-8 rounded-full bg-white shadow-[0_2px_6px_rgba(0,0,0,.12)] flex items-center justify-center text-sm"
-            aria-label="Wishlist"
+            aria-label={wished ? "Remove from wishlist" : "Add to wishlist"}
           >
             {wished ? "❤️" : "🤍"}
           </button>
@@ -91,7 +113,7 @@ export default function ProductCard({ product }) {
               : "bg-indigo-950 text-white group-hover:bg-gold group-hover:text-indigo-950"
           }`}
         >
-          {outOfStock ? "Unavailable" : added ? "Added ✓" : "🛒 Add to Cart"}
+          {outOfStock ? "Unavailable" : hasVariants ? "Select Options" : added ? "Added ✓" : "🛒 Add to Cart"}
         </button>
       </div>
     </div>

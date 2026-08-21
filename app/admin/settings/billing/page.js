@@ -27,7 +27,7 @@ export default function BillingSettingsPage() {
 
   const load = () => {
     setLoading(true);
-    fetch("/api/settings")
+    fetch("/api/settings", { cache: "no-store" })
       .then((r) => r.json())
       .then((res) => {
         if (res.success) {

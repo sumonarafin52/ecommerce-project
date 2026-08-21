@@ -4,11 +4,28 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useSession, signOut } from "next-auth/react";
-import { formatCurrency, formatDate } from "@/lib/utils";
+import { formatCurrency, formatDate, formatDateTime } from "@/lib/utils";
 import TrackingTimeline from "@/components/order/TrackingTimeline";
 import { ORDER_STATUS_LABELS, ORDER_STATUS_COLORS } from "@/lib/orderStatus";
+import AddressBook from "@/components/profile/AddressBook";
+import WishlistPanel from "@/components/profile/WishlistPanel";
+import SettingsPanel from "@/components/profile/SettingsPanel";
+import PaymentMethodsPanel from "@/components/profile/PaymentMethodsPanel";
+import NotificationsPanel from "@/components/profile/NotificationsPanel";
 
 const badge = (color) => `px-2.5 py-1 rounded-full text-[11px] font-bold capitalize ${color}`;
+
+// Only customer-relevant event types are shown in the order history below —
+// internal-only entries (staff notes, address-edit audit trail) are left
+// out on purpose, and staff names are never shown to the customer.
+const HISTORY_TYPES = {
+  status_changed: "🔄",
+  payment_status_changed: "💳",
+  hold: "⏸️",
+  hold_released: "▶️",
+  refund: "💰",
+  shipment_created: "📦",
+};
 
 const payColors = {
   paid: "bg-green-100 text-green-700",
@@ -41,6 +58,7 @@ export default function ProfilePage() {
   const [paymentMsg, setPaymentMsg] = useState(null);
   const [busyId, setBusyId] = useState("");
   const [trackingOpenId, setTrackingOpenId] = useState("");
+  const [historyOpenId, setHistoryOpenId] = useState("");
   const [trackingData, setTrackingData] = useState({});
   const [digitalDownloads, setDigitalDownloads] = useState({});
   const [downloadingId, setDownloadingId] = useState("");
@@ -83,6 +101,11 @@ export default function ProfilePage() {
   const [comment, setComment] = useState("");
   const [reviewing, setReviewing] = useState(false);
   const [reviewMsg, setReviewMsg] = useState("");
+
+  useEffect(() => {
+    const initialTab = new URLSearchParams(window.location.search).get("tab");
+    if (initialTab) setTab(initialTab);
+  }, []);
 
   useEffect(() => {
     const payment = new URLSearchParams(window.location.search).get("payment");
@@ -348,6 +371,12 @@ export default function ProfilePage() {
                               {trackingOpenId === order._id ? "Hide tracking" : "Track"}
                             </button>
                           )}
+                          <button
+                            onClick={() => setHistoryOpenId((id) => (id === order._id ? "" : order._id))}
+                            className="text-xs font-bold text-ink-muted hover:text-indigo-900 underline underline-offset-2"
+                          >
+                            {historyOpenId === order._id ? "Hide history" : "Order history"}
+                          </button>
                         </div>
 
                         {/* shipped = customer confirm receipt option */}
@@ -400,6 +429,30 @@ export default function ProfilePage() {
                           )}
                         </div>
                       )}
+
+                      {historyOpenId === order._id && (
+                        <div className="border-t border-line pt-3">
+                          {(order.activity || []).filter((a) => HISTORY_TYPES[a.type]).length > 0 ? (
+                            <div className="space-y-3 pl-4 border-l-2 border-line">
+                              {order.activity
+                                .filter((a) => HISTORY_TYPES[a.type])
+                                .slice()
+                                .reverse()
+                                .map((a, i) => (
+                                  <div key={i} className="relative text-sm">
+                                    <span className="absolute -left-[23px] top-0.5 w-4 h-4 flex items-center justify-center text-[11px] bg-cream-white rounded-full border border-line">
+                                      {HISTORY_TYPES[a.type]}
+                                    </span>
+                                    <p className="text-ink-soft">{a.message}</p>
+                                    <p className="text-[11px] text-ink-muted mt-0.5">{formatDateTime(a.at)}</p>
+                                  </div>
+                                ))}
+                            </div>
+                          ) : (
+                            <p className="text-xs text-ink-muted">No history recorded yet.</p>
+                          )}
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -408,11 +461,11 @@ export default function ProfilePage() {
           </div>
           )}
 
-          {tab === "addresses" && <PlaceholderPanel icon="📍" title="Addresses" text="Saved delivery addresses will appear here once this feature is added." />}
-          {tab === "wishlist" && <PlaceholderPanel icon="🤍" title="Wishlist" text="Products you save will appear here once this feature is added." />}
-          {tab === "payment" && <PlaceholderPanel icon="💳" title="Payment Methods" text="Saved cards and payment options will appear here once this feature is added." />}
-          {tab === "notifications" && <PlaceholderPanel icon="🔔" title="Notifications" text="Order and account updates will appear here once this feature is added." />}
-          {tab === "settings" && <PlaceholderPanel icon="⚙️" title="Settings" text="Account preferences will appear here once this feature is added." />}
+          {tab === "addresses" && <AddressBook />}
+          {tab === "wishlist" && <WishlistPanel />}
+          {tab === "payment" && <PaymentMethodsPanel />}
+          {tab === "notifications" && <NotificationsPanel />}
+          {tab === "settings" && <SettingsPanel />}
         </div>
       </div>
 

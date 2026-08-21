@@ -7,6 +7,7 @@ import { hasPermission } from "@/lib/rbac";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { SslCommerzPayment, getSslcommerzCredentials } from "@/lib/sslcommerz";
 import { rateLimit } from "@/lib/rateLimit";
+import { notify } from "@/lib/notify";
 
 // Attempts a real SSLCommerz refund. Returns { possible: false } (not a
 // thrown error) if automation genuinely isn't possible for this order — the
@@ -150,6 +151,15 @@ export async function POST(request, { params }) {
     });
 
     await order.save();
+
+    await notify({
+      user: order.user,
+      type: "refund",
+      title: "Refund issued",
+      message: `A refund of ${refundAmount} has been issued for order #${order.orderNumber}.`,
+      link: "/profile",
+    });
+
     return NextResponse.json({ success: true, data: order });
   } catch (error) {
     console.error("[orders:refund]", error);

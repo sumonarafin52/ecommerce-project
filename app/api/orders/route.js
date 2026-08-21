@@ -1,4 +1,6 @@
 // app/api/orders/route.js
+export const dynamic = "force-dynamic";
+
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import connectDB from "@/lib/db";
@@ -10,6 +12,7 @@ import ShippingMethod from "@/models/ShippingMethod";
 import { getEffectivePrice } from "@/lib/utils";
 import { hasPermission } from "@/lib/rbac";
 import { rateLimit } from "@/lib/rateLimit";
+import { notify } from "@/lib/notify";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 
 const THIRTY_DAYS = 30 * 24 * 60 * 60 * 1000;
@@ -96,6 +99,9 @@ export async function POST(request) {
       phone: shippingAddress?.phone?.trim(),
       address: shippingAddress?.address?.trim(),
       city: shippingAddress?.city?.trim(),
+      country: shippingAddress?.country?.trim() || "",
+      state: shippingAddress?.state?.trim() || "",
+      postalCode: shippingAddress?.postalCode?.trim() || "",
     };
     if (!address.fullName || !address.phone || !address.address || !address.city) {
       return NextResponse.json({ success: false, message: "Complete shipping address is required" }, { status: 400 });
@@ -112,10 +118,14 @@ export async function POST(request) {
           paymentMethod: "sslcommerz",
         });
 
+    // composite key so two different variants of the same product (e.g.
+    // Size S vs Size M) are tracked separately, not merged together
+    const lineKey = (productId, combinationKey) => `${productId}::${combinationKey || ""}`;
+
     const oldMap = new Map();
     if (existing) {
       for (const it of existing.items) {
-        const key = String(it.product);
+        const key = lineKey(it.product, it.combinationKey);
         oldMap.set(key, (oldMap.get(key) || 0) + it.quantity);
       }
     }
@@ -133,19 +143,52 @@ export async function POST(request) {
       if (!product) {
         return NextResponse.json({ success: false, message: "Product not found" }, { status: 404 });
       }
-      const oldQ = oldMap.get(String(product._id)) || 0;
-      const available = product.stock + oldQ;
+
+      // resolve the specific variant, if the cart line specified one —
+      // stock/price come from the combination, not the base product, once
+      // a product has variants (this is the actual fix: previously stock
+      // was only ever checked/decremented on the base product.stock field,
+      // so a sold-out variant could still be purchased as long as *some*
+      // other variant had stock)
+      let combo = null;
+      if (item.combinationKey) {
+        combo = (product.combinations || []).find((c) => c.key === item.combinationKey && c.active);
+        if (!combo) {
+          return NextResponse.json(
+            { success: false, message: `The selected option for ${product.name} is no longer available` },
+            { status: 400 }
+          );
+        }
+      }
+
+      const key = lineKey(product._id, item.combinationKey);
+      const oldQ = oldMap.get(key) || 0;
+      const stockAvailable = combo ? combo.stock : product.stock;
+      const available = stockAvailable + oldQ;
       if (available < item.quantity) {
         return NextResponse.json(
-          { success: false, message: `Insufficient stock for ${product.name}. Available: ${available}` },
+          {
+            success: false,
+            message: `Insufficient stock for ${product.name}${combo ? ` (${combo.key})` : ""}. Available: ${available}`,
+          },
           { status: 400 }
         );
       }
-      const price = getEffectivePrice(product);
+
+      // a combination price of 0 means "use the base product's price" —
+      // matches the storefront's own display logic (matchedCombo?.price || basePrice)
+      const price = combo?.price > 0 ? combo.price : getEffectivePrice(product);
       baseAmount += price * item.quantity;
       categoryMap.set(String(product._id), product.category);
       weightMap.set(String(product._id), product.weight || 0);
-      orderItems.push({ product: product._id, name: product.name, sku: product.sku || "", quantity: item.quantity, price });
+      orderItems.push({
+        product: product._id,
+        name: combo ? `${product.name} (${combo.key})` : product.name,
+        sku: combo?.sku || product.sku || "",
+        quantity: item.quantity,
+        price,
+        combinationKey: item.combinationKey || "",
+      });
     }
 
     // ===== COUPON CALCULATION (server-side, tamper-proof) =====
@@ -246,17 +289,25 @@ export async function POST(request) {
       }
     }
 
-    // stock adjustment (delta)
+    // stock adjustment (delta) — same composite key as above, so each
+    // variant's own stock is adjusted independently of the base product's
     const newMap = new Map();
     for (const it of orderItems) {
-      const key = String(it.product);
+      const key = lineKey(it.product, it.combinationKey);
       newMap.set(key, (newMap.get(key) || 0) + it.quantity);
     }
-    const allIds = new Set([...oldMap.keys(), ...newMap.keys()]);
-    for (const id of allIds) {
-      const delta = (oldMap.get(id) || 0) - (newMap.get(id) || 0);
-      if (delta !== 0) {
-        await Product.findByIdAndUpdate(id, { $inc: { stock: delta } });
+    const allKeys = new Set([...oldMap.keys(), ...newMap.keys()]);
+    for (const key of allKeys) {
+      const delta = (oldMap.get(key) || 0) - (newMap.get(key) || 0);
+      if (delta === 0) continue;
+      const [productId, combinationKey] = key.split("::");
+      if (combinationKey) {
+        await Product.updateOne(
+          { _id: productId, "combinations.key": combinationKey },
+          { $inc: { "combinations.$.stock": delta } }
+        );
+      } else {
+        await Product.findByIdAndUpdate(productId, { $inc: { stock: delta } });
       }
     }
 
@@ -304,6 +355,16 @@ export async function POST(request) {
       shipment: shippingMethodDoc
         ? { method: shippingMethodDoc._id, carrier: shippingMethodDoc.carrier?._id || null }
         : undefined,
+    });
+
+    await notify({
+      user: order.user,
+      type: "order_status",
+      title: "Order placed",
+      message: `Thanks! We've received your order #${order.orderNumber} for ${totalAmount}. ${
+        finalPaymentMethod === "cod" ? "Pay on delivery." : "Complete payment to confirm it."
+      }`,
+      link: "/profile",
     });
 
     return NextResponse.json({ success: true, data: order }, { status: 201 });

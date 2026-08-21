@@ -6,6 +6,7 @@ import Order from "@/models/Order";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { SslCommerzPayment, getSslcommerzCredentials, verifySslcommerzTransaction } from "@/lib/sslcommerz";
 import { rateLimit, getClientIp } from "@/lib/rateLimit";
+import { notify } from "@/lib/notify";
 
 export async function POST(request) {
   try {
@@ -69,6 +70,24 @@ export async function POST(request) {
           order.paymentStatus = "failed";
         }
         await order.save();
+
+        if (order.paymentStatus === "paid") {
+          await notify({
+            user: order.user,
+            type: "payment",
+            title: "Payment received",
+            message: `We've received your payment for order #${order.orderNumber}.`,
+            link: "/profile",
+          });
+        } else if (order.paymentStatus === "failed") {
+          await notify({
+            user: order.user,
+            type: "payment",
+            title: "Payment failed",
+            message: `Your payment for order #${order.orderNumber} didn't go through. You can try again from your order history.`,
+            link: "/profile",
+          });
+        }
       }
       return NextResponse.redirect(`${origin}/profile?payment=${finalStatus}`);
     }

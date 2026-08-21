@@ -1,4 +1,6 @@
 // app/api/settings/route.js
+export const dynamic = "force-dynamic";
+
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import connectDB from "@/lib/db";
@@ -38,7 +40,7 @@ function toAdminSafeJSON(settings) {
       configured: isGatewayConfigured(gateway, stored.fields || {}),
     };
   }
-  return { ...obj, payment: maskedPayment };
+  return { ...obj, payment: maskedPayment, email: { ...obj.email, smtpPassword: obj.email?.smtpPassword ? MASK : "" } };
 }
 
 // Public view (storefront): no credentials, no config shape at all — just
@@ -68,7 +70,7 @@ function toPublicJSON(settings) {
     return stored?.enabled && isGatewayConfigured(gateway, stored.fields || {});
   }).map((g) => ({ id: g.id, label: g.label, region: g.region }));
 
-  const { payment: _p, billing: _b, shipping: _s, ...rest } = obj;
+  const { payment: _p, billing: _b, shipping: _s, email: _e, ...rest } = obj;
   return { ...rest, enabledPaymentMethods };
 }
 
@@ -113,6 +115,8 @@ export async function PUT(request) {
       if (Array.isArray(body.homepage.heroSlides)) settings.homepage.heroSlides = body.homepage.heroSlides;
       if (Array.isArray(body.homepage.banners)) settings.homepage.banners = body.homepage.banners;
       if (Array.isArray(body.homepage.sections)) settings.homepage.sections = body.homepage.sections;
+      if (typeof body.homepage.showDeals === "boolean") settings.homepage.showDeals = body.homepage.showDeals;
+      if (typeof body.homepage.showBestSellers === "boolean") settings.homepage.showBestSellers = body.homepage.showBestSellers;
     }
 
     if (body.billing && typeof body.billing === "object") {
@@ -171,6 +175,20 @@ export async function PUT(request) {
 
       settings.payment = nextPayment;
       settings.markModified("payment");
+    }
+
+    if (body.email && typeof body.email === "object") {
+      const currentEmail = settings.email?.toObject?.() ?? settings.email ?? {};
+      const incoming = { ...body.email };
+      // a masked placeholder means "unchanged" — never overwrite a real
+      // secret with the mask string itself
+      if (incoming.smtpPassword === undefined || incoming.smtpPassword === MASK) {
+        delete incoming.smtpPassword;
+      } else {
+        incoming.smtpPassword = encryptSecret(incoming.smtpPassword);
+      }
+      settings.email = { ...currentEmail, ...incoming };
+      settings.markModified("email");
     }
 
     settings.markModified("general");

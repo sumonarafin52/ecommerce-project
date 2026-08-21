@@ -4,6 +4,8 @@
 // relevance ranking) — this just needs to be fast and return a handful of
 // candidates as the person types, so it does a narrower prefix-first query
 // instead of the full search pipeline.
+export const dynamic = "force-dynamic";
+
 import { NextResponse } from "next/server";
 import connectDB from "@/lib/db";
 import Product from "@/models/Product";

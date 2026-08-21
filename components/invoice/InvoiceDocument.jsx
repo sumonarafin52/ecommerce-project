@@ -58,7 +58,12 @@ export default function InvoiceDocument({ order, billing }) {
         <div>
           <p className="text-[11px] font-bold uppercase tracking-wide text-zinc-400 mb-1">Shipping Address</p>
           <p className="font-bold">{order.shippingAddress?.fullName}</p>
-          <p className="text-xs text-zinc-500">{order.shippingAddress?.address}, {order.shippingAddress?.city}</p>
+          <p className="text-xs text-zinc-500">
+            {order.shippingAddress?.address}, {order.shippingAddress?.city}
+            {order.shippingAddress?.state ? `, ${order.shippingAddress.state}` : ""}
+            {order.shippingAddress?.postalCode ? ` ${order.shippingAddress.postalCode}` : ""}
+            {order.shippingAddress?.country ? `, ${order.shippingAddress.country}` : ""}
+          </p>
           <p className="text-xs text-zinc-500">{order.shippingAddress?.phone}</p>
         </div>
       </div>
