@@ -8,6 +8,7 @@ import { useSession } from "next-auth/react";
 import useCartStore from "@/store/cartStore";
 import useWishlistStore from "@/store/wishlistStore";
 import ProductGrid from "@/components/product/ProductGrid";
+import ProductGallery from "@/components/product/ProductGallery";
 import { formatCurrency, getEffectivePrice, getDiscountPercentage } from "@/lib/utils";
 import Reviews from "@/components/product/Reviews";
 
@@ -191,40 +192,26 @@ export default function ProductDetailsPage() {
 
         <div className="grid md:grid-cols-2 gap-8">
           {/* gallery */}
-          <div className="space-y-3">
-            <div className="relative aspect-square bg-cream-alt border border-line rounded-xl overflow-hidden">
-              {images[imageIndex] ? (
-                <img src={images[imageIndex]} alt={product.name} className="w-full h-full object-contain" />
-              ) : (
-                <div className="w-full h-full flex items-center justify-center text-ink-muted">No image</div>
-              )}
-              {discountPct > 0 && (
-                <span className="absolute top-3 left-3 bg-brick text-white text-xs font-extrabold px-2.5 py-1 rounded">
-                  -{discountPct}% OFF
-                </span>
-              )}
-              {product.digitalProduct && (
-                <span className="absolute top-3 right-3 bg-indigo-900 text-white text-[10px] font-extrabold uppercase tracking-wider px-2.5 py-1 rounded-full shadow-lg">
-                  ⚡ Digital
-                </span>
-              )}
-            </div>
-            {images.length > 1 && (
-              <div className="flex gap-2.5 overflow-x-auto no-scrollbar">
-                {images.map((img, i) => (
-                  <button
-                    key={i}
-                    onClick={() => setImageIndex(i)}
-                    className={`w-16 h-16 shrink-0 rounded-lg overflow-hidden border-2 ${
-                      i === imageIndex ? "border-indigo-900" : "border-line hover:border-indigo-700/50"
-                    }`}
-                  >
-                    <img src={img} alt={`${product.name} ${i + 1}`} className="w-full h-full object-contain bg-cream-alt" />
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
+          <ProductGallery
+            images={images}
+            activeIndex={imageIndex}
+            onIndexChange={setImageIndex}
+            productName={product.name}
+            badges={
+              <>
+                {discountPct > 0 && (
+                  <span className="absolute top-3 left-3 bg-brick text-white text-xs font-extrabold px-2.5 py-1 rounded">
+                    -{discountPct}% OFF
+                  </span>
+                )}
+                {product.digitalProduct && (
+                  <span className="absolute top-3 right-3 bg-indigo-900 text-white text-[10px] font-extrabold uppercase tracking-wider px-2.5 py-1 rounded-full shadow-lg">
+                    ⚡ Digital
+                  </span>
+                )}
+              </>
+            }
+          />
 
           {/* info */}
           <div className="space-y-4">

@@ -19,7 +19,12 @@ const REGION_TABS = [
 function emptyStateFor(gateway) {
   const fields = {};
   gateway.fields.forEach((f) => (fields[f.key] = ""));
-  return { enabled: false, mode: "sandbox", fields };
+  // COD needs no configuration and is "on" by default (see
+  // toPublicJSON in app/api/settings/route.js) — the client-side default
+  // must match, or saving any other gateway for the first time would
+  // silently write enabled:false for COD too, since Save always PUTs the
+  // whole gateways object together.
+  return { enabled: gateway.id === "cod", mode: "sandbox", fields };
 }
 
 function GatewayCard({ gateway, state, onChange }) {
@@ -182,7 +187,11 @@ export default function PaymentSettingsPage() {
       }).then((r) => r.json());
 
       if (res.success) {
-        toast.success("Payment settings saved");
+        if (res.warnings?.length) {
+          res.warnings.forEach((w) => toast.error(w, { duration: 6000 }));
+        } else {
+          toast.success("Payment settings saved");
+        }
         const next = {};
         PAYMENT_GATEWAYS.forEach((g) => {
           const stored = res.data.payment?.[g.id];
@@ -214,7 +223,7 @@ export default function PaymentSettingsPage() {
     return (
       <div className="max-w-2xl mx-auto px-4 py-16 text-center">
         <p className="text-lg font-bold admin-text-primary">Access denied</p>
-        <p className="text-sm admin-text-muted mt-1">You don't have permission to manage settings.</p>
+        <p className="text-sm admin-text-muted mt-1">You don&apos;t have permission to manage settings.</p>
       </div>
     );
   }

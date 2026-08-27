@@ -188,7 +188,7 @@ export default async function ProductsPage({ searchParams }) {
                 <h1 className="font-display text-xl font-semibold text-indigo-950">{title}</h1>
                 <p className="text-[13px] text-ink-muted mt-0.5">
                   {total} product{total === 1 ? "" : "s"} found
-                  {didYouMean && search && <span className="text-gold-dark ml-2">— showing closest matches to "{search}"</span>}
+                  {didYouMean && search && <span className="text-gold-dark ml-2">— showing closest matches to &quot;{search}&quot;</span>}
                 </p>
               </div>
               <div className="flex items-center gap-2 flex-wrap">

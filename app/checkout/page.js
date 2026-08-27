@@ -55,6 +55,8 @@ export default function CheckoutPage() {
   const baseTotal = items.reduce((sum, i) => sum + getEffectivePrice(i) * i.quantity, 0);
 
   // load which payment methods are actually enabled (Settings → Payment Methods)
+  const [settingsLoadFailed, setSettingsLoadFailed] = useState(false);
+
   useEffect(() => {
     fetch("/api/settings", { cache: "no-store" })
       .then((r) => r.json())
@@ -72,9 +74,11 @@ export default function CheckoutPage() {
               })
               .catch(() => setMethod(methods[0].id));
           }
+        } else {
+          setSettingsLoadFailed(true);
         }
       })
-      .catch(() => {});
+      .catch(() => setSettingsLoadFailed(true));
   }, []);
 
   // load saved addresses and auto-fill from the default one, if any — the
@@ -503,7 +507,11 @@ export default function CheckoutPage() {
               </h2>
 
               {paymentMethods.length === 0 ? (
-                <p className="text-xs text-ink-muted">No payment methods are currently available. Please contact support.</p>
+                <p className="text-xs text-ink-muted">
+                  {settingsLoadFailed
+                    ? "Couldn't load payment options — please refresh the page. If this keeps happening, contact support."
+                    : "No payment methods are currently available. Please contact support."}
+                </p>
               ) : (
                 <div className="grid sm:grid-cols-2 gap-2">
                   {paymentMethods.map((pm) => {

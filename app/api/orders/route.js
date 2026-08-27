@@ -9,25 +9,41 @@ import Product from "@/models/Product";
 import User from "@/models/User";
 import Discount from "@/models/Discount";
 import ShippingMethod from "@/models/ShippingMethod";
-import { getEffectivePrice } from "@/lib/utils";
+import { getEffectivePrice, isValidQuantity } from "@/lib/utils";
 import { hasPermission } from "@/lib/rbac";
 import { rateLimit } from "@/lib/rateLimit";
 import { notify } from "@/lib/notify";
+import { atomicDecrement, adjustStock } from "@/lib/productStock";
+import { runInTransaction } from "@/lib/dbTransaction";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 
 const THIRTY_DAYS = 30 * 24 * 60 * 60 * 1000;
+// How recent a pending SSLCommerz order has to be for a fresh checkout to
+// reuse/overwrite it (a "resume payment" convenience for someone who just
+// bounced off the SSLCommerz redirect a minute ago). Anything older is left
+// completely untouched and a brand-new order is created instead — reusing
+// an arbitrary old pending order regardless of age was a real bug: a
+// customer's abandoned cart from weeks ago could get silently overwritten
+// by an unrelated new checkout.
+const DRAFT_REUSE_WINDOW_MS = 30 * 60 * 1000;
 
 // Atomically claims one usage slot on a discount — the increment and the
 // usageLimit check happen as a single DB operation, so concurrent checkouts
 // can't all read "1 slot left" and all succeed. Returns the updated
 // discount doc if the claim succeeded, or null if the limit was already hit
 // (by this or a concurrent request) between validation and this call.
-async function claimDiscountUsage(discountId) {
+async function claimDiscountUsage(discountId, session) {
   return Discount.findOneAndUpdate(
     { _id: discountId, $or: [{ usageLimit: 0 }, { $expr: { $lt: ["$usedCount", "$usageLimit"] } }] },
     { $inc: { usedCount: 1 } },
-    { new: true }
+    { new: true, session }
   );
+}
+
+// Releases one usage slot — guarded so usedCount can never go negative
+// (e.g. from a retry, a race, or a manual DB edit elsewhere).
+async function releaseDiscountUsage(code, session) {
+  await Discount.updateOne({ code, usedCount: { $gt: 0 } }, { $inc: { usedCount: -1 } }, { session });
 }
 
 export async function GET(request) {
@@ -78,7 +94,8 @@ export async function POST(request) {
       return NextResponse.json({ success: false, message: "Too many orders placed recently — please wait a few minutes." }, { status: 429 });
     }
 
-    const { items, shippingAddress, paymentMethod, userId, paymentStatus, discountCode, shippingMethodId } = await request.json();
+    const body = await request.json();
+    const { items, shippingAddress, paymentMethod, userId, paymentStatus, discountCode, shippingMethodId } = body;
 
     // ADMIN: customer er jonno order create
     let targetUserId = session.user.id;
@@ -92,6 +109,42 @@ export async function POST(request) {
 
     if (!items || !Array.isArray(items) || items.length === 0) {
       return NextResponse.json({ success: false, message: "Cart cannot be empty" }, { status: 400 });
+    }
+
+    // ===== DEFENSIVE ITEM VALIDATION (explicit, not truthy/falsy) =====
+    // Quantity must be a positive integer — this used to only check
+    // `!item.quantity`, which let 0 through (falsy check inverted wrongly
+    // for 0... actually 0 IS falsy so !0 is true, correctly rejected) but
+    // let -1, 1.5, and numeric strings straight through, since all of
+    // those are truthy. Every item is fully validated up front, before any
+    // database work happens, so a single bad line rejects the whole
+    // request with a clear 400 rather than partially processing.
+    for (const item of items) {
+      if (!item || typeof item !== "object") {
+        return NextResponse.json({ success: false, message: "Invalid item format" }, { status: 400 });
+      }
+      if (typeof item.product !== "string" || !/^[0-9a-fA-F]{24}$/.test(item.product)) {
+        return NextResponse.json({ success: false, message: "Invalid product reference" }, { status: 400 });
+      }
+      if (!isValidQuantity(item.quantity)) {
+        return NextResponse.json(
+          { success: false, message: `Invalid quantity for an item — must be a whole number between 1 and 500` },
+          { status: 400 }
+        );
+      }
+      if (item.combinationKey !== undefined && typeof item.combinationKey !== "string") {
+        return NextResponse.json({ success: false, message: "Invalid variant selection" }, { status: 400 });
+      }
+    }
+
+    if (paymentMethod !== undefined && !["cod", "sslcommerz"].includes(paymentMethod)) {
+      return NextResponse.json({ success: false, message: "Invalid payment method" }, { status: 400 });
+    }
+    if (discountCode !== undefined && discountCode !== "" && typeof discountCode !== "string") {
+      return NextResponse.json({ success: false, message: "Invalid coupon code" }, { status: 400 });
+    }
+    if (shippingMethodId !== undefined && shippingMethodId !== "" && !/^[0-9a-fA-F]{24}$/.test(String(shippingMethodId))) {
+      return NextResponse.json({ success: false, message: "Invalid shipping method" }, { status: 400 });
     }
 
     const address = {
@@ -109,14 +162,18 @@ export async function POST(request) {
 
     const finalPaymentMethod = paymentMethod === "cod" ? "cod" : "sslcommerz";
 
-    // DRAFT ORDER reuse (customer checkout only)
+    // DRAFT ORDER reuse (customer checkout only) — restricted to a recent
+    // window (see DRAFT_REUSE_WINDOW_MS) and validated to actually belong
+    // to this exact payment flow, so a months-old abandoned pending order
+    // is never silently overwritten by an unrelated new checkout.
     const existing = isAdmin
       ? null
       : await Order.findOne({
           user: targetUserId,
           paymentStatus: "pending",
           paymentMethod: "sslcommerz",
-        });
+          createdAt: { $gte: new Date(Date.now() - DRAFT_REUSE_WINDOW_MS) },
+        }).sort({ createdAt: -1 });
 
     // composite key so two different variants of the same product (e.g.
     // Size S vs Size M) are tracked separately, not merged together
@@ -130,17 +187,30 @@ export async function POST(request) {
       }
     }
 
-    // DB theke price + stock + category collect
+    // DB theke price + stock + category collect. Availability is checked
+    // here for a fast, clear error message, but this check alone does NOT
+    // prevent overselling under concurrency — the real guarantee comes
+    // from the atomic conditional decrement in the transaction below. Two
+    // requests can both pass this optimistic check; only one will
+    // actually succeed at the atomic-decrement stage, and the other gets
+    // a proper 409.
     let baseAmount = 0;
     const orderItems = [];
     const categoryMap = new Map();
     const weightMap = new Map();
     for (const item of items) {
-      if (!item.product || !item.quantity) {
-        return NextResponse.json({ success: false, message: "Invalid item format" }, { status: 400 });
-      }
       const product = await Product.findById(item.product);
       if (!product) {
+        return NextResponse.json({ success: false, message: "Product not found" }, { status: 404 });
+      }
+
+      // A customer must never be able to purchase a draft/private/
+      // unpublished product just by knowing its id — the storefront
+      // already hides these from listings/search, but the order endpoint
+      // previously fetched products directly with no status check at all.
+      // Staff creating a manual order (phone/in-store sale, or adding a
+      // product still being finished) are exempt on purpose.
+      if (!isAdmin && product.status !== "public") {
         return NextResponse.json({ success: false, message: "Product not found" }, { status: 404 });
       }
 
@@ -171,7 +241,7 @@ export async function POST(request) {
             success: false,
             message: `Insufficient stock for ${product.name}${combo ? ` (${combo.key})` : ""}. Available: ${available}`,
           },
-          { status: 400 }
+          { status: 409 }
         );
       }
 
@@ -267,112 +337,164 @@ export async function POST(request) {
       return NextResponse.json({ success: false, message: "Order amount must be positive for online payment" }, { status: 400 });
     }
 
-    // ===== COUPON CLAIM (atomic, and done before stock is touched below —
-    // if the claim fails, nothing else has changed yet, so there's nothing
-    // to roll back) =====
-    if (existing) {
-      if (existing.discountCode !== appliedCode) {
-        if (existing.discountCode) {
-          await Discount.updateOne({ code: existing.discountCode }, { $inc: { usedCount: -1 } });
-        }
-        if (discountDoc) {
-          const claimed = await claimDiscountUsage(discountDoc._id);
-          if (!claimed) {
-            return NextResponse.json({ success: false, message: "This coupon just reached its usage limit — please remove it and try again." }, { status: 400 });
+    // ===== CRITICAL SECTION =====
+    // Everything below either all succeeds together or all rolls back
+    // together: coupon claim/release, stock reservation, and the order
+    // write itself. Runs inside a real MongoDB transaction where the
+    // connected server supports one (replica set/Atlas); on a standalone
+    // server, runInTransaction() falls back to running this same code
+    // without a session — concurrency-safety is still fully enforced by
+    // the atomic conditional stock decrements below (that's what actually
+    // prevents overselling), the transaction adds cross-document
+    // all-or-nothing rollback on top of that where available.
+    let finalOrder;
+    let conflictMessage = null;
+
+    await runInTransaction(async (dbSession) => {
+      // ----- coupon: claim the NEW one first, only release the OLD one
+      // after that succeeds. Previously the old coupon's usage was
+      // decremented *before* the new one was claimed — if the new claim
+      // then failed, the old counter was already wrong with nothing to
+      // undo it. -----
+      if (existing) {
+        if (existing.discountCode !== appliedCode) {
+          if (discountDoc) {
+            const claimed = await claimDiscountUsage(discountDoc._id, dbSession);
+            if (!claimed) {
+              conflictMessage = "This coupon just reached its usage limit — please remove it and try again.";
+              return;
+            }
+          }
+          if (existing.discountCode) {
+            await releaseDiscountUsage(existing.discountCode, dbSession);
           }
         }
+      } else if (discountDoc) {
+        const claimed = await claimDiscountUsage(discountDoc._id, dbSession);
+        if (!claimed) {
+          conflictMessage = "This coupon just reached its usage limit — please remove it and try again.";
+          return;
+        }
       }
-    } else if (discountDoc) {
-      const claimed = await claimDiscountUsage(discountDoc._id);
-      if (!claimed) {
-        return NextResponse.json({ success: false, message: "This coupon just reached its usage limit — please remove it and try again." }, { status: 400 });
+
+      // ----- stock: atomic conditional decrement per line, with
+      // compensating rollback if a later line fails partway through -----
+      const newMap = new Map();
+      for (const it of orderItems) {
+        const key = lineKey(it.product, it.combinationKey);
+        newMap.set(key, (newMap.get(key) || 0) + it.quantity);
       }
-    }
+      const allKeys = new Set([...oldMap.keys(), ...newMap.keys()]);
 
-    // stock adjustment (delta) — same composite key as above, so each
-    // variant's own stock is adjusted independently of the base product's
-    const newMap = new Map();
-    for (const it of orderItems) {
-      const key = lineKey(it.product, it.combinationKey);
-      newMap.set(key, (newMap.get(key) || 0) + it.quantity);
-    }
-    const allKeys = new Set([...oldMap.keys(), ...newMap.keys()]);
-    for (const key of allKeys) {
-      const delta = (oldMap.get(key) || 0) - (newMap.get(key) || 0);
-      if (delta === 0) continue;
-      const [productId, combinationKey] = key.split("::");
-      if (combinationKey) {
-        await Product.updateOne(
-          { _id: productId, "combinations.key": combinationKey },
-          { $inc: { "combinations.$.stock": delta } }
-        );
-      } else {
-        await Product.findByIdAndUpdate(productId, { $inc: { stock: delta } });
+      const applied = []; // successfully-decremented keys, for rollback on partial failure
+      for (const key of allKeys) {
+        const delta = (oldMap.get(key) || 0) - (newMap.get(key) || 0);
+        if (delta === 0) continue;
+        const [productId, combinationKey] = key.split("::");
+
+        if (delta > 0) {
+          // returning stock (quantity decreased or line removed) — no
+          // guard needed, this can't oversell anything
+          await adjustStock([{ product: productId, combinationKey, quantity: delta }], 1, dbSession);
+          applied.push({ product: productId, combinationKey, quantity: delta, sign: 1 });
+        } else {
+          const need = -delta;
+          const ok = await atomicDecrement(productId, combinationKey || "", need, dbSession);
+          if (!ok) {
+            // roll back everything this request already reserved, and any
+            // coupon claim/release, before reporting the conflict
+            for (const a of applied.reverse()) {
+              await adjustStock([{ product: a.product, combinationKey: a.combinationKey, quantity: a.quantity }], -a.sign, dbSession);
+            }
+            if (existing && existing.discountCode !== appliedCode) {
+              if (discountDoc) await releaseDiscountUsage(discountDoc.code, dbSession);
+            } else if (!existing && discountDoc) {
+              await releaseDiscountUsage(discountDoc.code, dbSession);
+            }
+            conflictMessage = "Someone just bought the last unit — please review your cart and try again.";
+            return;
+          }
+          applied.push({ product: productId, combinationKey, quantity: need, sign: -1 });
+        }
       }
-    }
 
-    // draft thakle UPDATE
-    if (existing) {
-      existing.items = orderItems;
-      existing.baseAmount = baseAmount;
-      existing.discountCode = appliedCode;
-      existing.discountAmount = discountAmount;
-      existing.shippingCost = shippingCost;
-      existing.shippingMethodName = shippingMethodDoc?.name || "";
-      existing.totalAmount = totalAmount;
-      existing.shippingAddress = address;
-      existing.paymentMethod = finalPaymentMethod;
-      if (shippingMethodDoc) {
-        existing.shipment.method = shippingMethodDoc._id;
-        existing.shipment.carrier = shippingMethodDoc.carrier?._id || null;
+      // ----- draft thakle UPDATE, otherwise CREATE -----
+      if (existing) {
+        existing.items = orderItems;
+        existing.baseAmount = baseAmount;
+        existing.discountCode = appliedCode;
+        existing.discountAmount = discountAmount;
+        existing.shippingCost = shippingCost;
+        existing.shippingMethodName = shippingMethodDoc?.name || "";
+        existing.totalAmount = totalAmount;
+        existing.shippingAddress = address;
+        existing.paymentMethod = finalPaymentMethod;
+        if (shippingMethodDoc) {
+          existing.shipment.method = shippingMethodDoc._id;
+          existing.shipment.carrier = shippingMethodDoc.carrier?._id || null;
+        }
+        await existing.save({ session: dbSession });
+        finalOrder = existing;
+        return;
       }
-      await existing.save();
-      return NextResponse.json({ success: true, data: existing });
-    }
 
-    // notun order CREATE (coupon already claimed atomically above, before stock was touched)
-    const finalPaymentStatus = isAdmin && paymentStatus ? paymentStatus : "pending";
-    // COD has nothing to wait on, so it's immediately actionable. Online
-    // payment (sslcommerz) starts "pending" until the checkout webhook
-    // verifies payment — unless an admin created the order already marked
-    // paid, in which case there's nothing left to wait on either.
-    const initialOrderStatus = finalPaymentMethod === "cod" || finalPaymentStatus === "paid" ? "processing" : "pending";
+      const finalPaymentStatus = isAdmin && paymentStatus ? paymentStatus : "pending";
+      // COD has nothing to wait on, so it's immediately actionable. Online
+      // payment (sslcommerz) starts "pending" until the checkout webhook
+      // verifies payment — unless an admin created the order already marked
+      // paid, in which case there's nothing left to wait on either.
+      const initialOrderStatus = finalPaymentMethod === "cod" || finalPaymentStatus === "paid" ? "processing" : "pending";
 
-    const order = await Order.create({
-      orderNumber: `ORD-${Date.now().toString(36).toUpperCase()}`,
-      user: targetUserId,
-      items: orderItems,
-      shippingAddress: address,
-      paymentMethod: finalPaymentMethod,
-      baseAmount,
-      discountCode: appliedCode,
-      discountAmount,
-      shippingCost,
-      shippingMethodName: shippingMethodDoc?.name || "",
-      totalAmount,
-      paymentStatus: finalPaymentStatus,
-      orderStatus: initialOrderStatus,
-      shipment: shippingMethodDoc
-        ? { method: shippingMethodDoc._id, carrier: shippingMethodDoc.carrier?._id || null }
-        : undefined,
+      const [created] = await Order.create(
+        [
+          {
+            orderNumber: `ORD-${Date.now().toString(36).toUpperCase()}`,
+            user: targetUserId,
+            items: orderItems,
+            shippingAddress: address,
+            paymentMethod: finalPaymentMethod,
+            baseAmount,
+            discountCode: appliedCode,
+            discountAmount,
+            shippingCost,
+            shippingMethodName: shippingMethodDoc?.name || "",
+            totalAmount,
+            paymentStatus: finalPaymentStatus,
+            orderStatus: initialOrderStatus,
+            shipment: shippingMethodDoc
+              ? { method: shippingMethodDoc._id, carrier: shippingMethodDoc.carrier?._id || null }
+              : undefined,
+          },
+        ],
+        { session: dbSession }
+      );
+      finalOrder = created;
     });
 
+    if (conflictMessage) {
+      return NextResponse.json({ success: false, message: conflictMessage }, { status: 409 });
+    }
+    if (!finalOrder) {
+      return NextResponse.json({ success: false, message: "Failed to place order — please try again." }, { status: 500 });
+    }
+
     await notify({
-      user: order.user,
+      user: finalOrder.user,
       type: "order_status",
       title: "Order placed",
-      message: `Thanks! We've received your order #${order.orderNumber} for ${totalAmount}. ${
+      message: `Thanks! We've received your order #${finalOrder.orderNumber} for ${totalAmount}. ${
         finalPaymentMethod === "cod" ? "Pay on delivery." : "Complete payment to confirm it."
       }`,
       link: "/profile",
     });
 
-    return NextResponse.json({ success: true, data: order }, { status: 201 });
+    return NextResponse.json({ success: true, data: finalOrder }, { status: existing ? 200 : 201 });
   } catch (error) {
     if (error.name === "ValidationError") {
       const messages = Object.values(error.errors).map((e) => e.message);
       return NextResponse.json({ success: false, message: "Validation failed", errors: messages }, { status: 400 });
     }
-    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    console.error("[orders:create]", error);
+    return NextResponse.json({ success: false, message: "Something went wrong placing your order" }, { status: 500 });
   }
 }

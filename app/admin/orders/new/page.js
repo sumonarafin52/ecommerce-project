@@ -212,7 +212,7 @@ export default function CreateOrderPage() {
                       }
                       className="text-xs text-accent hover:underline font-bold text-left"
                     >
-                      Use {selectedCustomer.name}'s saved name/phone
+                      Use {selectedCustomer.name}&apos;s saved name/phone
                     </button>
                   )}
                 </div>
@@ -238,8 +238,8 @@ export default function CreateOrderPage() {
                 </div>
                 {form.paymentMethod === "sslcommerz" && form.paymentStatus === "pending" && (
                   <p className="text-[11px] text-zinc-500 mt-2">
-                    This order will start as "Pending" until payment is confirmed — the customer will need to be sent a
-                    payment link separately, since this form records the order but doesn't trigger a gateway checkout session.
+                    This order will start as &quot;Pending&quot; until payment is confirmed — the customer will need to be sent a
+                    payment link separately, since this form records the order but doesn&apos;t trigger a gateway checkout session.
                   </p>
                 )}
               </div>
@@ -266,7 +266,7 @@ export default function CreateOrderPage() {
                   <span className="font-bold text-white">Total</span>
                   <span className="font-bold text-accent">{formatCurrency(total)}</span>
                 </div>
-                <p className="text-[11px] text-zinc-500 mt-2">Shipping cost isn't included here — add it from the Order Details page after creating, if needed.</p>
+                <p className="text-[11px] text-zinc-500 mt-2">Shipping cost isn&apos;t included here — add it from the Order Details page after creating, if needed.</p>
                 <button type="submit" disabled={creating} className="w-full mt-4 bg-accent hover:bg-accent/80 text-primary font-bold py-3 rounded-md transition-colors disabled:opacity-50">
                   {creating ? "Creating..." : "Create Order"}
                 </button>

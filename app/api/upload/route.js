@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { createHash } from "crypto";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
-import { STAFF_ROLES } from "@/lib/rbac";
+import { hasPermission } from "@/lib/rbac";
 
 // Two allow-lists: plain images (logos, product photos, banners) and the
 // broader set Digital Products needs (ebooks/zips). SVG is scoped to images
@@ -68,11 +68,8 @@ async function matchesFileSignature(file) {
 export async function POST(request) {
   try {
     const session = await getServerSession(authOptions);
-    // Only staff accounts may upload — this endpoint writes directly to the
-    // store's Cloudinary account, so an ordinary "logged in customer" check
-    // was letting any registered shopper burn upload quota / host files there.
-    if (!session?.user || !STAFF_ROLES.includes(session.user.role)) {
-      return NextResponse.json({ success: false, message: "Staff access required" }, { status: 403 });
+    if (!session?.user) {
+      return NextResponse.json({ success: false, message: "Login required" }, { status: 401 });
     }
 
     const formData = await request.formData();
@@ -80,6 +77,18 @@ export async function POST(request) {
     // callers set kind="digital" for Digital Products uploads (ebooks/zips);
     // everything else (logos, product photos, banners) stays image-only
     const kind = formData.get("kind") === "digital" ? "digital" : "image";
+
+    // Digital assets are managed from the Digital Products admin page
+    // (gated by "products"). General images cover both product photos
+    // ("products") and store branding — logo/homepage banners — from
+    // Settings ("settings"). Neither Support nor Order Processing has
+    // either permission by default, so this actually excludes them now,
+    // instead of the old check which let any staff role upload.
+    const requiredPermission = kind === "digital" ? ["products"] : ["products", "settings"];
+    const allowed = await Promise.all(requiredPermission.map((p) => hasPermission(session, p)));
+    if (!allowed.some(Boolean)) {
+      return NextResponse.json({ success: false, message: "No permission" }, { status: 403 });
+    }
 
     if (!file || typeof file.arrayBuffer !== "function") {
       return NextResponse.json({ success: false, message: "No file provided" }, { status: 400 });

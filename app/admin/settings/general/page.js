@@ -155,7 +155,7 @@ export default function GeneralSettingsPage() {
     return (
       <div className="max-w-2xl mx-auto px-4 py-16 text-center">
         <p className="text-lg font-bold admin-text-primary">Access denied</p>
-        <p className="text-sm admin-text-muted mt-1">You don't have permission to manage settings.</p>
+        <p className="text-sm admin-text-muted mt-1">You don&apos;t have permission to manage settings.</p>
       </div>
     );
   }
@@ -248,7 +248,7 @@ export default function GeneralSettingsPage() {
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <p className="text-xs admin-text-muted max-w-md">
-              These slides appear at the top of the homepage. If you don't add any, the site falls back to auto-generated slides from your top-rated products.
+              These slides appear at the top of the homepage. If you don&apos;t add any, the site falls back to auto-generated slides from your top-rated products.
             </p>
             <button
               onClick={() => { setHeroSlides([...heroSlides, { _id: uid(), image: "", title: "", subtitle: "", tag: "", buttonText: "Shop Now", buttonLink: "/products", order: heroSlides.length, active: true }]); markDirty(); }}
@@ -361,11 +361,11 @@ export default function GeneralSettingsPage() {
             <div className="flex flex-wrap gap-5">
               <label className="flex items-center gap-2 text-sm font-semibold admin-text-secondary cursor-pointer">
                 <input type="checkbox" checked={showDeals} onChange={(e) => { setShowDeals(e.target.checked); markDirty(); }} className="w-4 h-4 accent-accent" />
-                Show "Today's Deals"
+                Show &quot;Today&apos;s Deals&quot;
               </label>
               <label className="flex items-center gap-2 text-sm font-semibold admin-text-secondary cursor-pointer">
                 <input type="checkbox" checked={showBestSellers} onChange={(e) => { setShowBestSellers(e.target.checked); markDirty(); }} className="w-4 h-4 accent-accent" />
-                Show "Best Sellers"
+                Show &quot;Best Sellers&quot;
               </label>
             </div>
             <p className="text-[11px] admin-text-muted mt-2.5">
@@ -376,7 +376,7 @@ export default function GeneralSettingsPage() {
 
           <div className="flex items-center justify-between">
             <p className="text-xs admin-text-muted max-w-md">
-              Control the product grid sections on the homepage — what they're called, where the products come from, and whether they're visible.
+              Control the product grid sections on the homepage — what they&apos;re called, where the products come from, and whether they&apos;re visible.
             </p>
             <button
               onClick={() => { setSections([...sections, { _id: uid(), title: "New Section", type: "newArrivals", categoryId: "", productIds: [], maxPrice: 0, buttonText: "See all", buttonLink: "/products", order: sections.length, visible: true }]); markDirty(); }}

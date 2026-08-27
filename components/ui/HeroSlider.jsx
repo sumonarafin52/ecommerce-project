@@ -49,20 +49,25 @@ export default function HeroSlider({ products = [], customSlides = [] }) {
           })),
         ];
 
-  if (slides.length === 0) return null;
+  // NOTE: every hook below must stay above the `slides.length === 0` early
+  // return further down — calling hooks conditionally (or after a return)
+  // violates React's Rules of Hooks and can crash with "Rendered fewer
+  // hooks than expected" if this component ever re-renders with a
+  // different slide count.
+  const [page, setPage] = useState(0);
+  const [paused, setPaused] = useState(false);
 
   // group into pairs for the duo-tile layout
   const pairs = [];
   for (let i = 0; i < slides.length; i += 2) pairs.push(slides.slice(i, i + 2));
-
-  const [page, setPage] = useState(0);
-  const [paused, setPaused] = useState(false);
 
   useEffect(() => {
     if (paused || pairs.length <= 1) return;
     const id = setInterval(() => setPage((p) => (p + 1) % pairs.length), 6000);
     return () => clearInterval(id);
   }, [paused, pairs.length]);
+
+  if (slides.length === 0) return null;
 
   const [big, small] = pairs[page] || [];
 

@@ -89,7 +89,7 @@ export default function EmailSettingsPage() {
   if (!can("settings")) {
     return (
       <div className="max-w-3xl mx-auto px-4 lg:px-8 py-6">
-        <p className="admin-text-secondary text-sm">You don't have permission to view this page.</p>
+        <p className="admin-text-secondary text-sm">You don&apos;t have permission to view this page.</p>
       </div>
     );
   }

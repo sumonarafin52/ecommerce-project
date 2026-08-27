@@ -186,6 +186,89 @@ export default function Header() {
 
   const unreadCount = notifications.filter((n) => !n.read).length;
 
+  const searchDropdown = (query.trim().length >= 2 ? suggestions : recentSearches.length > 0) && (
+    <div className="absolute left-0 right-0 top-full mt-2 bg-cream-white text-ink rounded-lg shadow-[0_1px_2px_rgba(15,81,50,.06),0_8px_24px_rgba(15,81,50,.07)] border border-line overflow-hidden z-50 max-h-96 overflow-y-auto">
+      {query.trim().length < 2 && recentSearches.length > 0 && (
+        <div className="p-2">
+          <p className="text-[11px] font-bold uppercase tracking-wide text-ink-muted px-2 pt-1">Recent searches</p>
+          {recentSearches.map((term) => (
+            <button
+              key={term}
+              type="button"
+              onMouseDown={() => runSearch(term)}
+              className="w-full text-left px-2 py-1.5 text-sm rounded hover:bg-cream-alt flex items-center gap-2"
+            >
+              <span className="text-ink-muted">🕘</span> {term}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {query.trim().length >= 2 && suggestions && (
+        <div className="p-2">
+          {suggestions.categories?.length > 0 && (
+            <div className="mb-1">
+              {suggestions.categories.map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  onMouseDown={() => {
+                    setShowDropdown(false);
+                    router.push(`/products?category=${encodeURIComponent(c)}`);
+                  }}
+                  className="w-full text-left px-2 py-1.5 text-sm rounded hover:bg-cream-alt flex items-center gap-2"
+                >
+                  <span className="text-ink-muted">📁</span> in <span className="font-bold">{c}</span>
+                </button>
+              ))}
+            </div>
+          )}
+          {suggestions.products?.length > 0 ? (
+            suggestions.products.map((p) => (
+              <button
+                key={p._id}
+                type="button"
+                onMouseDown={() => {
+                  setShowDropdown(false);
+                  router.push(`/products/${p._id}`);
+                }}
+                className="w-full text-left px-2 py-2 text-sm rounded hover:bg-cream-alt flex items-center gap-3"
+              >
+                {p.images?.[0] && <img src={p.images[0]} alt="" className="w-8 h-8 rounded object-cover shrink-0" />}
+                <span className="flex-1 truncate">{p.name}</span>
+                <span className="text-xs font-bold text-ink-muted shrink-0">{formatCurrency(getEffectivePrice(p))}</span>
+              </button>
+            ))
+          ) : (
+            <p className="text-xs text-ink-muted px-2 py-2">No matches — press Enter to search anyway</p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+
+  const renderSearchForm = () => (
+    <form
+      onSubmit={submitSearch}
+      className="flex h-[46px] border-2 border-indigo-900 rounded-full overflow-hidden bg-cream-white focus-within:shadow-[0_0_0_3px_rgba(44,82,130,0.12)] transition-shadow"
+    >
+      <input
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        onFocus={() => setShowDropdown(true)}
+        onBlur={() => setTimeout(() => setShowDropdown(false), 150)}
+        placeholder={t.searchPlaceholder}
+        autoComplete="off"
+        className="flex-1 min-w-0 px-4 text-sm text-ink outline-none bg-transparent placeholder-ink-muted"
+      />
+      <button type="submit" className="w-14 bg-indigo-900 hover:bg-indigo-950 text-white flex items-center justify-center shrink-0 transition-colors" aria-label="Search">
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35M17 10.5a6.5 6.5 0 11-13 0 6.5 6.5 0 0113 0z" />
+        </svg>
+      </button>
+    </form>
+  );
+
   const panelCls =
     "absolute left-0 top-full mt-2 w-60 rounded-lg bg-cream-white border border-line shadow-[0_1px_2px_rgba(15,81,50,.06),0_8px_24px_rgba(15,81,50,.07)] p-2 z-50";
   const itemCls = "block px-3 py-2 text-sm text-ink-soft rounded-md hover:bg-cream-alt hover:text-indigo-900";
@@ -216,87 +299,9 @@ export default function Header() {
             )}
           </Link>
 
-          <div className="flex-1 hidden sm:block relative max-w-2xl">
-            <form
-              onSubmit={submitSearch}
-              className="flex h-[46px] border-2 border-indigo-900 rounded-full overflow-hidden bg-cream-white focus-within:shadow-[0_0_0_3px_rgba(44,82,130,0.12)] transition-shadow"
-            >
-              <input
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                onFocus={() => setShowDropdown(true)}
-                onBlur={() => setTimeout(() => setShowDropdown(false), 150)}
-                placeholder={t.searchPlaceholder}
-                autoComplete="off"
-                className="flex-1 min-w-0 px-4 text-sm text-ink outline-none bg-transparent placeholder-ink-muted"
-              />
-              <button type="submit" className="w-14 bg-indigo-900 hover:bg-indigo-950 text-white flex items-center justify-center shrink-0 transition-colors" aria-label="Search">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35M17 10.5a6.5 6.5 0 11-13 0 6.5 6.5 0 0113 0z" />
-                </svg>
-              </button>
-            </form>
-
-            {showDropdown && (query.trim().length >= 2 ? suggestions : recentSearches.length > 0) && (
-              <div className="absolute left-0 right-0 top-full mt-2 bg-cream-white text-ink rounded-lg shadow-[0_1px_2px_rgba(15,81,50,.06),0_8px_24px_rgba(15,81,50,.07)] border border-line overflow-hidden z-50 max-h-96 overflow-y-auto">
-                {query.trim().length < 2 && recentSearches.length > 0 && (
-                  <div className="p-2">
-                    <p className="text-[11px] font-bold uppercase tracking-wide text-ink-muted px-2 pt-1">Recent searches</p>
-                    {recentSearches.map((term) => (
-                      <button
-                        key={term}
-                        type="button"
-                        onMouseDown={() => runSearch(term)}
-                        className="w-full text-left px-2 py-1.5 text-sm rounded hover:bg-cream-alt flex items-center gap-2"
-                      >
-                        <span className="text-ink-muted">🕘</span> {term}
-                      </button>
-                    ))}
-                  </div>
-                )}
-
-                {query.trim().length >= 2 && suggestions && (
-                  <div className="p-2">
-                    {suggestions.categories?.length > 0 && (
-                      <div className="mb-1">
-                        {suggestions.categories.map((c) => (
-                          <button
-                            key={c}
-                            type="button"
-                            onMouseDown={() => {
-                              setShowDropdown(false);
-                              router.push(`/products?category=${encodeURIComponent(c)}`);
-                            }}
-                            className="w-full text-left px-2 py-1.5 text-sm rounded hover:bg-cream-alt flex items-center gap-2"
-                          >
-                            <span className="text-ink-muted">📁</span> in <span className="font-bold">{c}</span>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                    {suggestions.products?.length > 0 ? (
-                      suggestions.products.map((p) => (
-                        <button
-                          key={p._id}
-                          type="button"
-                          onMouseDown={() => {
-                            setShowDropdown(false);
-                            router.push(`/products/${p._id}`);
-                          }}
-                          className="w-full text-left px-2 py-2 text-sm rounded hover:bg-cream-alt flex items-center gap-3"
-                        >
-                          {p.images?.[0] && <img src={p.images[0]} alt="" className="w-8 h-8 rounded object-cover shrink-0" />}
-                          <span className="flex-1 truncate">{p.name}</span>
-                          <span className="text-xs font-bold text-ink-muted shrink-0">{formatCurrency(getEffectivePrice(p))}</span>
-                        </button>
-                      ))
-                    ) : (
-                      <p className="text-xs text-ink-muted px-2 py-2">No matches — press Enter to search anyway</p>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
+          <div className="flex-1 hidden md:block relative max-w-2xl">
+            {renderSearchForm()}
+            {showDropdown && searchDropdown}
           </div>
 
           <button className="hidden lg:flex items-center gap-2 text-ink-soft shrink-0">
@@ -484,6 +489,14 @@ export default function Header() {
               </div>
             )}
           </div>
+        </div>
+
+        {/* Mobile-only search row — the header row above hides the search
+            box below md; without this, phones would have no way to search
+            the store at all. */}
+        <div className="md:hidden px-4 pb-3 relative">
+          {renderSearchForm()}
+          {showDropdown && searchDropdown}
         </div>
 
         {/* Row 2 — category nav */}

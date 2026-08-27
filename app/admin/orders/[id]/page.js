@@ -641,7 +641,7 @@ export default function OrderDetailsPage() {
                     <option value="manual" className="bg-primary">Record manually (already refunded outside the app)</option>
                   </select>
                   {order.paymentMethod !== "sslcommerz" && refundMethod === "gateway" && (
-                    <p className="text-[11px] text-amber-400">This order wasn't paid via SSLCommerz — it'll be recorded as manual automatically.</p>
+                    <p className="text-[11px] text-amber-400">This order wasn&apos;t paid via SSLCommerz — it&apos;ll be recorded as manual automatically.</p>
                   )}
                   <div className="flex justify-end gap-2">
                     <button onClick={() => setShowRefund(false)} className="text-xs font-bold text-zinc-400 hover:text-white px-2 py-1.5">Cancel</button>

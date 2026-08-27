@@ -135,10 +135,12 @@ export async function PUT(request) {
       settings.markModified("billing");
     }
 
+    let paymentWarnings = [];
     if (body.payment && typeof body.payment === "object") {
       const currentPayment = settings.payment || {};
       const nextPayment = { ...currentPayment };
 
+      const warnings = [];
       for (const gateway of PAYMENT_GATEWAYS) {
         const incoming = body.payment[gateway.id];
         if (!incoming || typeof incoming !== "object") continue;
@@ -158,12 +160,13 @@ export async function PUT(request) {
           mergedFields[f.key] = f.secret ? encryptSecret(incomingValue) : incomingValue;
         }
 
-        const wantsEnabled = !!incoming.enabled;
+        let wantsEnabled = !!incoming.enabled;
         if (wantsEnabled && !isGatewayConfigured(gateway, mergedFields)) {
-          return NextResponse.json(
-            { success: false, message: `${gateway.label}: fill in all required fields before enabling it` },
-            { status: 400 }
-          );
+          // don't abort the whole save over one incomplete gateway — save
+          // its fields as entered, just leave it disabled, and tell the
+          // admin why
+          wantsEnabled = false;
+          warnings.push(`${gateway.label} needs all required fields filled in before it can be enabled — left disabled for now.`);
         }
 
         nextPayment[gateway.id] = {
@@ -175,6 +178,7 @@ export async function PUT(request) {
 
       settings.payment = nextPayment;
       settings.markModified("payment");
+      paymentWarnings = warnings;
     }
 
     if (body.email && typeof body.email === "object") {
@@ -195,7 +199,7 @@ export async function PUT(request) {
     settings.markModified("homepage");
     await settings.save();
 
-    return NextResponse.json({ success: true, data: toAdminSafeJSON(settings) });
+    return NextResponse.json({ success: true, data: toAdminSafeJSON(settings), warnings: paymentWarnings });
   } catch (error) {
     return NextResponse.json({ success: false, message: error.message }, { status: 500 });
   }

@@ -77,7 +77,7 @@ export default function BillingSettingsPage() {
     return (
       <div className="max-w-2xl mx-auto px-4 py-16 text-center">
         <p className="text-lg font-bold admin-text-primary">Access denied</p>
-        <p className="text-sm admin-text-muted mt-1">You don't have permission to manage settings.</p>
+        <p className="text-sm admin-text-muted mt-1">You don&apos;t have permission to manage settings.</p>
       </div>
     );
   }

@@ -164,7 +164,7 @@ export default function AdminDashboard() {
           <h1 className="text-2xl lg:text-3xl font-extrabold admin-text-primary">
             Welcome back, <span className="text-accent">{session?.user?.name}!</span>
           </h1>
-          <p className="text-sm admin-text-muted mt-1">Here's what's happening with your store today</p>
+          <p className="text-sm admin-text-muted mt-1">Here&apos;s what&apos;s happening with your store today</p>
         </div>
         <div className="text-xs admin-text-muted">
           {new Date().toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}

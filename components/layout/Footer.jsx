@@ -111,7 +111,7 @@ export default function Footer() {
           <div>
             <h4 className="text-white text-[13.5px] font-bold mb-3.5">Shop</h4>
             <Link href="/products" className={linkCls}>All Products</Link>
-            <Link href="/products?deals=1" className={linkCls}>Today's Deals</Link>
+            <Link href="/products?deals=1" className={linkCls}>Today&apos;s Deals</Link>
             <Link href="/products?sort=top" className={linkCls}>Best Sellers</Link>
             <Link href="/products?sort=new" className={linkCls}>New Arrivals</Link>
           </div>

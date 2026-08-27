@@ -63,7 +63,7 @@ export default function PaymentMethodsPanel() {
         <h3 className="text-[17px] font-bold text-ink">Payment Methods</h3>
         <p className="text-xs text-ink-muted mt-1.5 leading-relaxed">
           🔒 For your security, we never ask for or store your card number, CVV, or wallet PIN. Card and mobile banking
-          payments are entered directly on SSLCommerz's secure payment page — we only save your checkout preference below.
+          payments are entered directly on SSLCommerz&apos;s secure payment page — we only save your checkout preference below.
         </p>
       </div>
 
@@ -122,7 +122,7 @@ export default function PaymentMethodsPanel() {
           />
         </div>
         <p className="text-[11px] text-ink-muted mt-1.5">
-          Saved as a personal reminder only — it's never used to charge you or sent anywhere automatically.
+          Saved as a personal reminder only — it&apos;s never used to charge you or sent anywhere automatically.
         </p>
       </div>
 
