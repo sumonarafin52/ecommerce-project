@@ -7,7 +7,7 @@ import Settings from "@/models/Settings";
 import HeroSlider from "@/components/ui/HeroSlider";
 import ProductGrid from "@/components/product/ProductGrid";
 import RecommendedGrid from "@/components/product/RecommendedGrid";
-import { getEffectivePrice } from "@/lib/utils";
+import { getEffectivePrice, getTotalStock } from "@/lib/utils";
 
 // Resolves one admin-configured homepage section (Settings → General →
 // Homepage Sections) into { title, buttonText, buttonLink, products }.
@@ -52,11 +52,37 @@ async function resolveSection(section, products) {
 
 export const dynamic = "force-dynamic";
 
+// Trim a showcase to whole rows of the 4-column desktop grid (max 8), so a
+// section never ends with a lone orphan card. Short lists are left as-is.
+function fullRows(list, perRow = 4, max = 8) {
+  const capped = list.slice(0, max);
+  if (capped.length <= perRow) return capped;
+  return capped.slice(0, capped.length - (capped.length % perRow));
+}
+
+// Icon for a category tile when the admin hasn't uploaded an image,
+// matched on common keywords (English and Bangla).
+const CATEGORY_ICONS = [
+  [/electr|phone|mobile|gadget|laptop|computer|ইলেক/i, "📱"],
+  [/fashion|cloth|wear|dress|saree|panjabi|shirt|পোশাক/i, "👗"],
+  [/shoe|footwear|জুতা/i, "👟"],
+  [/home|kitchen|furnitur|decor|ঘর/i, "🏠"],
+  [/beauty|cosmetic|skin|makeup|care|সৌন্দর্য/i, "💄"],
+  [/grocer|food|rice|snack|খাদ্য|মুদি/i, "🛒"],
+  [/baby|kid|toy|শিশু/i, "🧸"],
+  [/sport|fitness|gym|খেলা/i, "⚽"],
+  [/book|station|বই/i, "📚"],
+  [/health|medic|pharma|স্বাস্থ্য/i, "💊"],
+  [/jewel|watch|access|গহনা/i, "⌚"],
+  [/pet|পোষা/i, "🐾"],
+];
+const categoryIcon = (name = "") => (CATEGORY_ICONS.find(([re]) => re.test(name)) || [null, "🛍️"])[1];
+
 const perks = [
-  { title: "Free Home Delivery", sub: "On every order, nationwide", icon: "M3 7h11v8H3V7zm11 3h4l3 3v2h-7v-5zM7 19a2 2 0 100-4 2 2 0 000 4zm10 0a2 2 0 100-4 2 2 0 000 4z" },
-  { title: "Secure Payment", sub: "bKash, cards & SSLCommerz", icon: "M12 2l8 4v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6l8-4z" },
+  { title: "Nationwide Delivery", sub: "To all 64 districts", icon: "M3 7h11v8H3V7zm11 3h4l3 3v2h-7v-5zM7 19a2 2 0 100-4 2 2 0 000 4zm10 0a2 2 0 100-4 2 2 0 000 4z" },
+  { title: "Secure Payment", sub: "Cash on delivery or online", icon: "M12 2l8 4v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6l8-4z" },
   { title: "Easy Returns", sub: "7-day return policy", icon: "M4 4v6h6M20 20v-6h-6M4 10a8 8 0 0114-4M20 14a8 8 0 01-14 4" },
-  { title: "24/7 Support", sub: "Call or email anytime", icon: "M4 12a8 8 0 0116 0v5a2 2 0 01-2 2h-2v-6h4M4 12v5a2 2 0 002 2h2v-6H4" },
+  { title: "Real Support", sub: "Message us — a person replies", icon: "M4 12a8 8 0 0116 0v5a2 2 0 01-2 2h-2v-6h4M4 12v5a2 2 0 002 2h2v-6H4" },
 ];
 
 function SectionTitle({ title, href, label, eyebrow }) {
@@ -91,9 +117,12 @@ export default async function HomePage() {
   const showDeals = homepage.showDeals !== false;
   const showBestSellers = homepage.showBestSellers !== false;
 
-  const sliderProducts = [...products].sort((a, b) => b.ratingAvg - a.ratingAvg).slice(0, 5);
-  const deals = products.filter((p) => p.discountPrice > 0).slice(0, 8);
-  const topSelling = [...products].sort((a, b) => b.numReviews - a.numReviews).slice(0, 8);
+  // Showcases only feature things a customer can actually buy right now —
+  // an out-of-stock item in "Today's Deals" wastes prime space on a dead end.
+  const buyable = products.filter((p) => getTotalStock(p) > 0);
+  const sliderProducts = [...buyable].sort((a, b) => b.ratingAvg - a.ratingAvg).slice(0, 5);
+  const deals = fullRows(buyable.filter((p) => p.discountPrice > 0 && p.discountPrice < p.price));
+  const topSelling = fullRows([...buyable].sort((a, b) => b.numReviews - a.numReviews));
   const newArrivals = products.slice(0, 8);
 
   return (
@@ -108,12 +137,12 @@ export default async function HomePage() {
             <div className="flex gap-6 overflow-x-auto pb-1.5">
               {categories.map((c) => (
                 <Link key={c._id} href={`/products?category=${encodeURIComponent(c.name)}`} className="shrink-0 text-center w-28 group">
-                  <div className="w-28 h-28 rounded-full overflow-hidden bg-cream-alt border border-line">
+                  <div className="w-28 h-28 rounded-full overflow-hidden bg-cream-alt border border-line group-hover:border-gold group-hover:shadow-premium transition-all duration-300">
                     {c.image ? (
                       <img src={c.image} alt={c.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
                     ) : (
-                      <div className="w-full h-full flex items-center justify-center text-2xl font-display font-bold text-indigo-900/40">
-                        {c.name.charAt(0)}
+                      <div className="w-full h-full flex items-center justify-center text-[42px] bg-gradient-to-br from-cream-white to-gold-light/70 group-hover:scale-110 transition-transform duration-300">
+                        <span aria-hidden="true">{categoryIcon(c.name)}</span>
                       </div>
                     )}
                   </div>

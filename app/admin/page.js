@@ -210,7 +210,7 @@ export default function AdminDashboard() {
         </div>
       </div>
 
-      <div className="grid lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Recent orders */}
         <div className="lg:col-span-2 admin-card rounded-xl p-6">
           <div className="flex items-center justify-between mb-4">

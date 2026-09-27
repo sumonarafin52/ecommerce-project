@@ -10,6 +10,11 @@ if (!process.env.NEXTAUTH_SECRET) {
   throw new Error("NEXTAUTH_SECRET environment variable is not set");
 }
 
+// A real bcrypt hash of a throwaway string. Compared against whenever no
+// matching user exists, so an unknown email costs the same time as a wrong
+// password and can't be distinguished by response timing.
+const DUMMY_HASH = "$2a$12$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy";
+
 export const authOptions = {
   session: {
     strategy: "jwt",
@@ -39,9 +44,16 @@ export const authOptions = {
         // generic "invalid credentials" response.
         const ip = getClientIp(req);
         const emailKey = credentials.email.trim().toLowerCase();
-        const limit = rateLimit(`login:${ip}:${emailKey}`, { max: 8, windowMs: 10 * 60_000 });
+        const limit = await rateLimit(`login:${ip}:${emailKey}`, { max: 8, windowMs: 10 * 60_000 });
         if (!limit.allowed) {
           throw new Error("Too many login attempts. Please try again in a few minutes.");
+        }
+        // Second layer, keyed on IP alone: the per-IP+email limit above
+        // stops someone hammering one account, but not someone rotating
+        // through many emails from one host to discover which exist.
+        const ipLimit = await rateLimit(`login-ip:${ip}`, { max: 40, windowMs: 10 * 60_000 });
+        if (!ipLimit.allowed) {
+          throw new Error("Too many login attempts from this network. Please try again shortly.");
         }
 
         try {
@@ -51,16 +63,14 @@ export const authOptions = {
             .select("+password")
             .lean();
 
-          if (!user) {
-            return null;
-          }
+          // Always run a bcrypt comparison, even when no such user exists.
+          // Returning early for an unknown email made that path ~100ms
+          // faster than a wrong-password attempt, so response timing
+          // revealed which email addresses have accounts here.
+          const hashToCompare = user?.password || DUMMY_HASH;
+          const isPasswordValid = await bcrypt.compare(credentials.password, hashToCompare);
 
-          const isPasswordValid = await bcrypt.compare(
-            credentials.password,
-            user.password
-          );
-
-          if (!isPasswordValid) {
+          if (!user || !isPasswordValid) {
             return null;
           }
 

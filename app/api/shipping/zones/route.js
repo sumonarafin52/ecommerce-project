@@ -7,6 +7,7 @@ import connectDB from "@/lib/db";
 import ShippingZone from "@/models/ShippingZone";
 import { hasPermission } from "@/lib/rbac";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
+import { serverError } from "@/lib/apiError";
 
 // GET: public — checkout needs zones to compute shipping options
 export async function GET() {
@@ -15,7 +16,7 @@ export async function GET() {
     const zones = await ShippingZone.find().sort({ order: 1, name: 1 }).lean();
     return NextResponse.json({ success: true, data: zones });
   } catch (error) {
-    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    return serverError(error, "api/shipping/zones");
   }
 }
 
@@ -38,6 +39,6 @@ export async function POST(request) {
     });
     return NextResponse.json({ success: true, data: zone }, { status: 201 });
   } catch (error) {
-    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    return serverError(error, "api/shipping/zones");
   }
 }

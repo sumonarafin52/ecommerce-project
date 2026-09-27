@@ -5,6 +5,7 @@ import connectDB from "@/lib/db";
 import Product from "@/models/Product";
 import { hasPermission } from "@/lib/rbac";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
+import { serverError } from "@/lib/apiError";
 
 const MAX_BULK = 100;
 
@@ -81,6 +82,6 @@ export async function POST(request) {
 
     return NextResponse.json({ success: false, message: "Unknown action" }, { status: 400 });
   } catch (error) {
-    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    return serverError(error, "api/products/bulk");
   }
 }

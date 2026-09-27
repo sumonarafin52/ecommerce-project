@@ -297,7 +297,13 @@ describe("draft order reuse safety", () => {
       paymentStatus: "pending",
       orderStatus: "pending",
     });
-    await Order.updateOne({ _id: old._id }, { $set: { createdAt: new Date(Date.now() - 60 * 60 * 1000) } }); // 1 hour ago
+    // Mongoose treats the timestamps-managed `createdAt` as immutable, so
+    // updating it through the model is silently ignored — go through the
+    // raw driver collection to genuinely age this order out of the window.
+    await Order.collection.updateOne(
+      { _id: old._id },
+      { $set: { createdAt: new Date(Date.now() - 60 * 60 * 1000) } }
+    ); // 1 hour ago
 
     const res = await POST(
       req({ items: [{ product: productB._id.toString(), quantity: 1 }], shippingAddress: baseAddress, paymentMethod: "sslcommerz" })

@@ -5,6 +5,7 @@ import connectDB from "@/lib/db";
 import ShippingCarrier from "@/models/ShippingCarrier";
 import { hasPermission } from "@/lib/rbac";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
+import { serverError } from "@/lib/apiError";
 
 async function requirePermission() {
   const session = await getServerSession(authOptions);
@@ -38,7 +39,7 @@ export async function PUT(request, { params }) {
     if (!carrier) return NextResponse.json({ success: false, message: "Carrier not found" }, { status: 404 });
     return NextResponse.json({ success: true, data: carrier });
   } catch (error) {
-    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    return serverError(error, "api/shipping/carriers/[id]");
   }
 }
 
@@ -51,6 +52,6 @@ export async function DELETE(request, { params }) {
     await ShippingCarrier.findByIdAndDelete(params.id);
     return NextResponse.json({ success: true });
   } catch (error) {
-    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    return serverError(error, "api/shipping/carriers/[id]");
   }
 }

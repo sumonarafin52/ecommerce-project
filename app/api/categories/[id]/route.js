@@ -5,6 +5,7 @@ import connectDB from "@/lib/db";
 import Category from "@/models/Category";
 import { hasPermission } from "@/lib/rbac";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
+import { serverError } from "@/lib/apiError";
 
 // PUT: admin — category update (name, subcategories, image, order)
 export async function PUT(request, { params }) {
@@ -44,7 +45,7 @@ export async function PUT(request, { params }) {
     }
     return NextResponse.json({ success: true, data: category });
   } catch (error) {
-    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    return serverError(error, "api/categories/[id]");
   }
 }
 
@@ -66,6 +67,6 @@ export async function DELETE(request, { params }) {
     }
     return NextResponse.json({ success: true, message: "Category deleted" });
   } catch (error) {
-    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    return serverError(error, "api/categories/[id]");
   }
 }

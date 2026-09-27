@@ -6,7 +6,9 @@ import { getServerSession } from "next-auth";
 import connectDB from "@/lib/db";
 import Product from "@/models/Product";
 import { hasPermission } from "@/lib/rbac";
+import { notifyBackInStock } from "@/lib/inventoryEvents";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
+import { serverError } from "@/lib/apiError";
 
 // ===== GET: status-aware single product =====
 export async function GET(request, { params }) {
@@ -30,7 +32,7 @@ export async function GET(request, { params }) {
 
     return NextResponse.json({ success: true, data: product });
   } catch (error) {
-    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    return serverError(error, "api/products/[id]");
   }
 }
 // ===== AUTO SKU GENERATOR (SA-SKU-1, SA-SKU-2, ...) =====
@@ -107,12 +109,19 @@ export async function PUT(request, { params }) {
       return NextResponse.json({ success: false, message: "Product not found" }, { status: 404 });
     }
 
+    // A restock (or re-publishing) may satisfy customers who asked to be
+    // told when it's back. Not awaited: the admin's save shouldn't wait on
+    // sending emails.
+    if (update.stock !== undefined || update.combinations !== undefined || update.status !== undefined) {
+      notifyBackInStock(product._id);
+    }
+
     return NextResponse.json({ success: true, data: product });
   } catch (error) {
     if (error.name === "ValidationError") {
       return NextResponse.json({ success: false, message: "Validation failed" }, { status: 400 });
     }
-    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    return serverError(error, "api/products/[id]");
   }
 }
 
@@ -134,6 +143,6 @@ export async function DELETE(request, { params }) {
     }
     return NextResponse.json({ success: true, message: "Product deleted" });
   } catch (error) {
-    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    return serverError(error, "api/products/[id]");
   }
 }

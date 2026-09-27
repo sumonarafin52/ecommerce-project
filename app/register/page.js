@@ -6,6 +6,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { signIn } from "next-auth/react";
 import AuthShell from "@/components/auth/AuthShell";
+import PasswordField from "@/components/auth/PasswordField";
+import { validatePassword, validateEmail, validateName } from "@/lib/authValidation";
 
 const inputCls =
   "w-full px-3.5 py-3 border-[1.5px] border-line rounded-lg text-sm text-ink outline-none focus:border-indigo-900 transition-colors";
@@ -21,8 +23,14 @@ export default function RegisterPage() {
   const submit = async (e) => {
     e.preventDefault();
     setError("");
-    if (form.password.length < 6) {
-      setError("Password must be at least 6 characters");
+    // mirror the server's rules so problems surface instantly instead of
+    // after a failed round-trip
+    const clientError =
+      validateName(form.name) ||
+      validateEmail(form.email) ||
+      validatePassword(form.password, { name: form.name, email: form.email });
+    if (clientError) {
+      setError(clientError);
       return;
     }
     if (form.password !== form.confirm) {
@@ -82,13 +90,22 @@ export default function RegisterPage() {
           <label className="block text-[13px] font-bold text-ink-soft mb-1.5">Email address</label>
           <input type="email" required className={inputCls} placeholder="you@example.com" value={form.email} onChange={set("email")} />
         </div>
+        <PasswordField
+          value={form.password}
+          onChange={set("password")}
+          showMeter
+          context={{ name: form.name, email: form.email }}
+        />
         <div>
-          <label className="block text-[13px] font-bold text-ink-soft mb-1.5">Password</label>
-          <input type="password" required className={inputCls} placeholder="At least 6 characters" value={form.password} onChange={set("password")} />
-        </div>
-        <div>
-          <label className="block text-[13px] font-bold text-ink-soft mb-1.5">Confirm password</label>
-          <input type="password" required className={inputCls} placeholder="Re-enter password" value={form.confirm} onChange={set("confirm")} />
+          <PasswordField
+            label="Confirm password"
+            value={form.confirm}
+            onChange={set("confirm")}
+            placeholder="Re-enter password"
+          />
+          {form.confirm && form.password !== form.confirm && (
+            <p className="text-[12px] font-bold text-brick mt-1.5">Passwords don&apos;t match</p>
+          )}
         </div>
 
         <button

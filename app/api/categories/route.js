@@ -7,6 +7,7 @@ import connectDB from "@/lib/db";
 import Category from "@/models/Category";
 import { hasPermission } from "@/lib/rbac";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
+import { serverError } from "@/lib/apiError";
 
 // GET: public — sob category + subcategory (dropdown er jonno)
 export async function GET() {
@@ -15,7 +16,7 @@ export async function GET() {
     const categories = await Category.find().sort({ order: 1, name: 1 }).lean();
     return NextResponse.json({ success: true, data: categories });
   } catch (error) {
-    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    return serverError(error, "api/categories");
   }
 }
 
@@ -50,6 +51,6 @@ export async function POST(request) {
 
     return NextResponse.json({ success: true, data: category }, { status: 201 });
   } catch (error) {
-    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    return serverError(error, "api/categories");
   }
 }

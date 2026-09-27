@@ -127,7 +127,7 @@ export default async function ProductsPage({ searchParams }) {
           <span className="text-ink">All Products</span>
         </nav>
 
-        <div className="grid lg:grid-cols-[250px_1fr] gap-7 pb-14">
+        <div className="grid grid-cols-1 lg:grid-cols-[250px_1fr] gap-7 pb-14">
           {/* filters sidebar */}
           <aside className="bg-cream-white border border-line rounded-xl p-5 h-fit lg:sticky lg:top-4">
             <h4 className="text-[13.5px] font-bold text-ink pb-2.5 border-b border-line mb-3.5">Filters</h4>

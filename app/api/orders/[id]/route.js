@@ -6,10 +6,13 @@ import { getServerSession } from "next-auth";
 import connectDB from "@/lib/db";
 import Order from "@/models/Order";
 import Product from "@/models/Product";
+import User from "@/models/User";
+import Discount from "@/models/Discount";
 import { hasPermission } from "@/lib/rbac";
 import { isValidTransition, putOnHold, releaseHold, ORDER_STATUS_LABELS } from "@/lib/orderStatus";
 import { notify } from "@/lib/notify";
 import { adjustStock } from "@/lib/productStock";
+import { notifyBackInStock } from "@/lib/inventoryEvents";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 
 function pushActivity(order, type, message, session) {
@@ -83,6 +86,60 @@ export async function PUT(request, { params }) {
       return NextResponse.json({ success: true, data: order });
     }
 
+    // ===== CUSTOMER: cancel before it ships =====
+    if (body.cancelByCustomer) {
+      if (!isOwner) {
+        return NextResponse.json({ success: false, message: "Not your order" }, { status: 403 });
+      }
+      if (!["pending", "processing", "on_hold"].includes(order.orderStatus)) {
+        return NextResponse.json(
+          { success: false, message: "This order has already shipped or been closed, so it can't be cancelled." },
+          { status: 400 }
+        );
+      }
+      if (order.fulfillments?.length) {
+        return NextResponse.json(
+          { success: false, message: "Part of this order is already on its way — please contact support to cancel." },
+          { status: 400 }
+        );
+      }
+      // Money has been taken: cancelling needs a refund, which staff handle.
+      // Self-cancelling here would leave the customer's payment in limbo.
+      if (order.paymentStatus === "paid") {
+        return NextResponse.json(
+          { success: false, message: "This order is already paid — please contact support and we'll cancel and refund it." },
+          { status: 400 }
+        );
+      }
+
+      const reason = typeof body.reason === "string" ? body.reason.trim().slice(0, 300) : "";
+      if (!order.stockReleased) {
+        await adjustStock(order.items, 1);
+        order.stockReleased = true;
+        for (const it of order.items) notifyBackInStock(it.product);
+      }
+      if (order.discountCode) {
+        await Discount.updateOne({ code: order.discountCode, usedCount: { $gt: 0 } }, { $inc: { usedCount: -1 } });
+      }
+      pushActivity(order, "status_changed", `Customer cancelled the order${reason ? `: ${reason}` : ""}`, session);
+      order.orderStatus = "cancelled";
+      order.previousStatus = undefined;
+      order.holdReason = "";
+      await order.save();
+
+      const admins = await User.find({ role: "admin" }).select("_id").lean();
+      for (const a of admins) {
+        notify({
+          user: a._id,
+          type: "order_status",
+          title: "Order cancelled by customer",
+          message: `Order #${order.orderNumber} was cancelled by the customer${reason ? ` — "${reason}"` : ""}.`,
+          link: `/admin/orders/${order._id}`,
+        });
+      }
+      return NextResponse.json({ success: true, data: order });
+    }
+
     // ===== STAFF: status / address / hold updates =====
     if (!(await hasPermission(session, "orders_update"))) {
       return NextResponse.json({ success: false, message: "No permission" }, { status: 403 });
@@ -99,9 +156,21 @@ export async function PUT(request, { params }) {
       }
       if (orderStatus === "shipped" && !order.shippedAt) order.shippedAt = new Date();
       if (orderStatus === "delivered" && !order.deliveredAt) order.deliveredAt = new Date();
-      // cancel korle stock fire dei
-      if (orderStatus === "cancelled") {
+      // cancel korle stock fire dei — but only if this order is still
+      // holding its stock. A failed online payment already releases it
+      // (see app/api/checkout/route.js), so without this guard cancelling
+      // an already-failed order would credit the same units back twice.
+      if (orderStatus === "cancelled" && !order.stockReleased) {
         await adjustStock(order.items, 1);
+        order.stockReleased = true;
+        // returned stock may satisfy customers waiting on these items
+        for (const it of order.items) notifyBackInStock(it.product);
+        // Give the coupon slot back too — every other cancellation path
+        // (customer cancel, failed payment) already does. Without this a
+        // limited coupon permanently lost a use each time staff cancelled.
+        if (order.discountCode) {
+          await Discount.updateOne({ code: order.discountCode, usedCount: { $gt: 0 } }, { $inc: { usedCount: -1 } });
+        }
       }
       pushActivity(order, "status_changed", `Order status changed from "${order.orderStatus}" to "${orderStatus}"`, session);
       order.orderStatus = orderStatus;
@@ -200,7 +269,9 @@ export async function DELETE(request, { params }) {
 
     // stock fire dei sudhu jodi order ekhono shipped na hoy
     // cancelled order er stock age thekei return kora, delivered mane product chole geche
-    if (["pending", "processing", "on_hold"].includes(order.orderStatus)) {
+    // stockReleased check: a failed online payment already returned this
+    // order's stock, so restoring again here would double-credit it.
+    if (["pending", "processing", "on_hold"].includes(order.orderStatus) && !order.stockReleased) {
       await adjustStock(order.items, 1);
     }
 

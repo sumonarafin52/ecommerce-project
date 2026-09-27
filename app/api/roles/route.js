@@ -15,6 +15,7 @@ import {
   hasPermission,
 } from "@/lib/rbac";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
+import { serverError } from "@/lib/apiError";
 
 // GET: staff nijer permissions pay; admin (roles permission thakle) sob role er config o pay
 export async function GET() {
@@ -48,7 +49,7 @@ export async function GET() {
 
     return NextResponse.json({ success: true, data });
   } catch (error) {
-    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    return serverError(error, "api/roles");
   }
 }
 
@@ -86,6 +87,6 @@ export async function PUT(request) {
 
     return NextResponse.json({ success: true, data: config });
   } catch (error) {
-    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    return serverError(error, "api/roles");
   }
 }

@@ -9,10 +9,18 @@ import useCartStore from "@/store/cartStore";
 import useWishlistStore from "@/store/wishlistStore";
 import ProductGrid from "@/components/product/ProductGrid";
 import ProductGallery from "@/components/product/ProductGallery";
+import StockAlertButton from "@/components/product/StockAlertButton";
+import CompareButton from "@/components/product/CompareButton";
+import { ProductDetailSkeleton } from "@/components/ui/Skeleton";
 import { formatCurrency, getEffectivePrice, getDiscountPercentage } from "@/lib/utils";
 import Reviews from "@/components/product/Reviews";
+import ProductQuestions from "@/components/product/ProductQuestions";
 
 function Stars({ rating, count }) {
+  // A new product with no reviews shouldn't look badly rated.
+  if (!count) {
+    return <span className="text-sm text-ink-muted">No reviews yet — be the first</span>;
+  }
   return (
     <div className="flex items-center gap-1">
       {[1, 2, 3, 4, 5].map((n) => (
@@ -119,8 +127,11 @@ export default function ProductDetailsPage() {
 
   if (loading) {
     return (
-      <div className="bg-cream-bg min-h-screen flex items-center justify-center">
-        <div className="w-10 h-10 border-4 border-indigo-900 border-t-transparent rounded-full animate-spin" />
+      <div className="bg-cream-bg min-h-screen font-body2">
+        <div className="max-w-7xl mx-auto px-4 py-6">
+          <div className="h-4 w-48 mb-5 animate-pulse bg-line/60 rounded" />
+          <ProductDetailSkeleton />
+        </div>
       </div>
     );
   }
@@ -135,6 +146,18 @@ export default function ProductDetailsPage() {
       </div>
     );
   }
+
+  const isValueAvailable = (optName, value) => {
+    const combos = product?.combinations || [];
+    if (!combos.length) return true;
+    return combos.some(
+      (cb) =>
+        cb.active !== false &&
+        (cb.stock || 0) > 0 &&
+        (cb.options || {})[optName] === value &&
+        Object.entries(selected).every(([k, v]) => k === optName || (cb.options || {})[k] === v)
+    );
+  };
 
   const outOfStock = displayStock <= 0;
   const needsSelection = product.options?.length > 0 && !matchedCombo;
@@ -190,7 +213,7 @@ export default function ProductDetailsPage() {
           <span className="text-ink">{product.name}</span>
         </nav>
 
-        <div className="grid md:grid-cols-2 gap-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
           {/* gallery */}
           <ProductGallery
             images={images}
@@ -234,11 +257,12 @@ export default function ProductDetailsPage() {
                         <button
                           key={v}
                           onClick={() => setSelected((s) => ({ ...s, [opt.name]: v }))}
+                          title={isValueAvailable(opt.name, v) ? undefined : "Sold out — select to get notified"}
                           className={`px-3.5 py-2 rounded-lg text-xs font-bold border-2 transition-all ${
                             selected[opt.name] === v
                               ? "border-indigo-900 bg-indigo-100 text-indigo-900"
                               : "border-line text-ink-soft hover:border-indigo-700/50"
-                          }`}
+                          } ${isValueAvailable(opt.name, v) ? "" : "opacity-45 line-through decoration-[1.5px]"}`}
                         >
                           {v}
                         </button>
@@ -274,7 +298,7 @@ export default function ProductDetailsPage() {
                 : "In stock"}
             </p>
 
-            <div className="flex items-center gap-3">
+            <div className={`flex items-center gap-3 ${outOfStock ? "hidden" : ""}`}>
               <span className="text-sm text-ink-soft font-bold">Qty:</span>
               <div className="flex items-center border-[1.5px] border-line rounded-lg">
                 <button
@@ -302,26 +326,38 @@ export default function ProductDetailsPage() {
             )}
 
             <div className="flex gap-3 pt-2">
-              <button
-                onClick={handleAdd}
-                disabled={outOfStock || needsSelection}
-                className={`flex-1 py-3.5 rounded-lg font-bold text-sm transition-colors ${
-                  outOfStock || needsSelection
-                    ? "bg-line text-ink-muted cursor-not-allowed"
-                    : added
-                    ? "bg-green-700 text-white"
-                    : "bg-gold hover:bg-gold-dark text-indigo-950"
-                }`}
-              >
-                {added ? "Added ✓" : "Add to Cart"}
-              </button>
-              <button
-                onClick={handleBuyNow}
-                disabled={outOfStock || needsSelection}
-                className="flex-1 py-3.5 rounded-lg font-bold text-sm bg-indigo-950 hover:bg-indigo-900 text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                Buy Now
-              </button>
+              {outOfStock && !needsSelection ? (
+                // Sold out: offer a restock alert instead of dead buttons —
+                // it captures demand that would otherwise just leave.
+                <StockAlertButton
+                  productId={product._id}
+                  combinationKey={matchedCombo?.key || ""}
+                  className="flex-1"
+                />
+              ) : (
+                <>
+                  <button
+                    onClick={handleAdd}
+                    disabled={outOfStock || needsSelection}
+                    className={`flex-1 py-3.5 rounded-lg font-bold text-sm transition-colors ${
+                      outOfStock || needsSelection
+                        ? "bg-line text-ink-muted cursor-not-allowed"
+                        : added
+                        ? "bg-green-700 text-white"
+                        : "bg-gold hover:bg-gold-dark text-indigo-950"
+                    }`}
+                  >
+                    {added ? "Added ✓" : "Add to Cart"}
+                  </button>
+                  <button
+                    onClick={handleBuyNow}
+                    disabled={outOfStock || needsSelection}
+                    className="flex-1 py-3.5 rounded-lg font-bold text-sm bg-indigo-950 hover:bg-indigo-900 text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    Buy Now
+                  </button>
+                </>
+              )}
               <button
                 onClick={handleWishlist}
                 aria-label={wished ? "Remove from wishlist" : "Add to wishlist"}
@@ -337,11 +373,26 @@ export default function ProductDetailsPage() {
               </p>
             )}
 
-            <ul className="text-xs text-ink-muted space-y-1.5 pt-2 border-t border-line">
-              <li>• Free home delivery on every order</li>
-              <li>• 7-day easy return policy</li>
-              <li>• Secure payment via bKash, cards & SSLCommerz</li>
-            </ul>
+            <div className="flex justify-end">
+              <CompareButton productId={product._id} />
+            </div>
+
+            <div className="grid grid-cols-3 gap-2 pt-3 border-t border-line">
+              {[
+                { icon: "🚚", title: "Nationwide", sub: "All 64 districts" },
+                { icon: "↩️", title: "Easy returns", sub: "Within 7 days" },
+                { icon: "🔒", title: "Secure payment", sub: "COD or online" },
+              ].map((t) => (
+                <div
+                  key={t.title}
+                  className="text-center bg-cream-alt/50 border border-line rounded-lg px-2 py-3 transition-colors hover:border-gold/50"
+                >
+                  <div className="text-lg leading-none mb-1.5">{t.icon}</div>
+                  <p className="text-[11.5px] font-bold text-ink leading-tight">{t.title}</p>
+                  <p className="text-[10.5px] text-ink-muted mt-0.5">{t.sub}</p>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
 
@@ -357,6 +408,8 @@ export default function ProductDetailsPage() {
 
         <Reviews productId={product._id} />
 
+        <ProductQuestions productId={product._id} />
+
         <section>
           <h2 className="font-display text-xl sm:text-2xl font-semibold text-indigo-950 mb-4 flex items-center gap-2">
             <span className="w-1 h-6 bg-gold rounded-full" />
@@ -365,6 +418,38 @@ export default function ProductDetailsPage() {
           <ProductGrid products={related} emptyMessage="No related products" />
         </section>
       </div>
+
+      {/* Mobile sticky buy bar — on a phone the real buy button scrolls out
+          of view as soon as someone reads the description or reviews, so
+          this keeps the price and primary action reachable throughout.
+          Hidden on desktop, where the buy box already sits beside the gallery. */}
+      <div className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-cream-white border-t border-line px-4 py-3 flex items-center gap-3 shadow-[0_-4px_16px_rgba(30,58,95,0.08)]">
+        <div className="min-w-0">
+          <p className="font-display text-lg font-bold text-indigo-900 leading-none">{formatCurrency(displayPrice)}</p>
+          {discountPct > 0 && (
+            <p className="text-[11px] text-ink-muted line-through mt-0.5">{formatCurrency(product.price)}</p>
+          )}
+        </div>
+        {outOfStock && !needsSelection ? (
+          <StockAlertButton productId={product._id} combinationKey={matchedCombo?.key || ""} className="flex-1 !py-3" />
+        ) : (
+          <button
+            onClick={handleAdd}
+            disabled={outOfStock || needsSelection}
+            className={`flex-1 py-3 rounded-lg font-bold text-sm transition-colors ${
+              outOfStock || needsSelection
+                ? "bg-line text-ink-muted cursor-not-allowed"
+                : added
+                ? "bg-green-700 text-white"
+                : "bg-gold hover:bg-gold-dark text-indigo-950"
+            }`}
+          >
+            {outOfStock ? "Out of stock" : needsSelection ? "Select options" : added ? "Added ✓" : "Add to Cart"}
+          </button>
+        )}
+      </div>
+      {/* spacer so the fixed bar never overlaps the last of the content */}
+      <div className="md:hidden h-20" />
     </div>
   );
 }

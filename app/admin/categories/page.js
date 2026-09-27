@@ -137,7 +137,7 @@ export default function AdminCategoriesPage() {
           <p className="text-xs text-zinc-500 mt-1">Category + subcategory gulo product form er dropdown e dekhabe</p>
         </div>
 
-        <div className="grid lg:grid-cols-[380px_1fr] gap-6 items-start">
+        <div className="grid grid-cols-1 lg:grid-cols-[380px_1fr] gap-6 items-start">
           {/* ===== CREATE CARD ===== */}
           <form onSubmit={create} className="bg-gradient-to-br from-accent/10 via-primary-light to-primary-light border border-white/10 rounded-2xl p-6 space-y-4 lg:sticky lg:top-4">
             <h2 className="text-base font-extrabold text-white flex items-center gap-2.5">

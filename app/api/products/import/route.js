@@ -5,6 +5,7 @@ import connectDB from "@/lib/db";
 import Product from "@/models/Product";
 import { hasPermission } from "@/lib/rbac";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
+import { serverError } from "@/lib/apiError";
 
 const MAX_ROWS = 500;
 
@@ -119,6 +120,6 @@ export async function POST(request) {
       data: { created, failed: errors.length, errors: errors.slice(0, 50) },
     });
   } catch (error) {
-    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    return serverError(error, "api/products/import");
   }
 }

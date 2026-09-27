@@ -15,6 +15,12 @@ const userSchema = new mongoose.Schema(
       enum: ["customer", "admin", "editor", "order_processing", "support"],
       default: "customer", // signup e sobai customer hisebe ashbe
     },
+    // Password reset. Only a SHA-256 hash of the token is stored — the raw
+    // token exists solely in the emailed link — so a database leak can't be
+    // turned into account takeovers. Hidden from queries by default, like
+    // the password itself.
+    resetTokenHash: { type: String, select: false, default: null },
+    resetTokenExpires: { type: Date, select: false, default: null },
   },
   { timestamps: true }
 );

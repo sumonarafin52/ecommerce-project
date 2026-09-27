@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { signIn } from "next-auth/react";
 import AuthShell from "@/components/auth/AuthShell";
+import PasswordField from "@/components/auth/PasswordField";
 
 const inputCls =
   "w-full px-3.5 py-3 border-[1.5px] border-line rounded-lg text-sm text-ink outline-none focus:border-indigo-900 transition-colors";
@@ -24,7 +25,11 @@ export default function LoginPage() {
     const res = await signIn("credentials", { redirect: false, email, password });
     setLoading(false);
     if (res?.error) {
-      setError("Invalid email or password");
+      // authorize() throws a distinct message for rate limiting; showing a
+      // blanket "invalid credentials" there left people retrying a locked
+      // account with no idea why it kept failing.
+      const isRateLimit = /too many/i.test(res.error);
+      setError(isRateLimit ? res.error : "Invalid email or password");
       return;
     }
     // only ever redirect to a same-site path from this — never trust an
@@ -64,16 +69,17 @@ export default function LoginPage() {
             onChange={(e) => setEmail(e.target.value)}
           />
         </div>
-        <div>
-          <label className="block text-[13px] font-bold text-ink-soft mb-1.5">Password</label>
-          <input
-            type="password"
-            required
-            className={inputCls}
-            placeholder="••••••••"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-          />
+        <PasswordField
+          label="Password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          placeholder="Your password"
+          autoComplete="current-password"
+        />
+        <div className="flex justify-end -mt-2">
+          <Link href="/forgot-password" className="text-[12.5px] font-bold text-indigo-900 hover:underline">
+            Forgot password?
+          </Link>
         </div>
 
         <button

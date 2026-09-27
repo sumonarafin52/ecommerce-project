@@ -6,6 +6,7 @@ import ShippingZone from "@/models/ShippingZone";
 import ShippingMethod from "@/models/ShippingMethod";
 import { hasPermission } from "@/lib/rbac";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
+import { serverError } from "@/lib/apiError";
 
 async function requirePermission() {
   const session = await getServerSession(authOptions);
@@ -35,7 +36,7 @@ export async function PUT(request, { params }) {
     if (!zone) return NextResponse.json({ success: false, message: "Zone not found" }, { status: 404 });
     return NextResponse.json({ success: true, data: zone });
   } catch (error) {
-    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    return serverError(error, "api/shipping/zones/[id]");
   }
 }
 
@@ -55,6 +56,6 @@ export async function DELETE(request, { params }) {
     await ShippingZone.findByIdAndDelete(params.id);
     return NextResponse.json({ success: true });
   } catch (error) {
-    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    return serverError(error, "api/shipping/zones/[id]");
   }
 }

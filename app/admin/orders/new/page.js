@@ -128,7 +128,7 @@ export default function CreateOrderPage() {
             <div className="w-6 h-6 border-2 border-accent border-t-transparent rounded-full animate-spin mx-auto" />
           </div>
         ) : (
-          <form onSubmit={submit} className="grid lg:grid-cols-3 gap-5">
+          <form onSubmit={submit} className="grid grid-cols-1 lg:grid-cols-3 gap-5">
             <div className="lg:col-span-2 space-y-5">
               {error && (
                 <p className="text-sm font-medium text-red-400 bg-red-500/10 border border-red-500/30 rounded-md px-4 py-3">{error}</p>

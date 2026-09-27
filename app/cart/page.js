@@ -43,7 +43,7 @@ export default function CartPage() {
           Shopping Cart <span className="text-ink-muted text-base font-normal">({itemCount} item{itemCount === 1 ? "" : "s"})</span>
         </h1>
 
-        <div className="grid lg:grid-cols-[1fr_340px] gap-7 pb-14">
+        <div className="grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-7 pb-14">
           {/* items */}
           <div className="bg-cream-white border border-line rounded-xl overflow-hidden h-fit">
             {items.map((item) => (

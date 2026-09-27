@@ -211,3 +211,121 @@ body.admin-theme [class*="from-indigo"] > .text-white,
 body.admin-theme [class*="from-blue"] > .text-white,
 body.admin-theme [class*="from-amber"] > .text-white,
 body.admin-theme [class*="from-pink"] > .text-white { color: #ffffff !important; }
+/* ===================================================================
+   PREMIUM POLISH
+   Cross-cutting refinements: smoother typography rendering, accessible
+   focus states, refined motion, and richer depth — applied globally so
+   every page benefits without touching each component.
+   =================================================================== */
+
+/* Crisper text rendering, and stop iOS Safari from auto-inflating font
+   sizes on rotate (a common cause of "why is this text huge on mobile") */
+html {
+  -webkit-text-size-adjust: 100%;
+  scroll-behavior: smooth;
+}
+body {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+/* Respect the OS "reduce motion" setting — required for accessibility,
+   and prevents motion sickness for people who've asked not to see it. */
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Visible, on-brand keyboard focus. Uses :focus-visible so it only shows
+   for keyboard users, never as an ugly ring on mouse clicks. */
+:focus-visible {
+  outline: 2px solid rgb(44 82 130);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+body.admin-theme :focus-visible {
+  outline-color: rgb(var(--color-accent));
+}
+
+/* Consistent easing — the default `ease` feels mechanical; this curve
+   decelerates naturally and reads as more considered. */
+a, button, input, select, textarea, [role="button"] {
+  transition-timing-function: cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+/* Buttons acknowledge the press physically — small but makes the whole
+   UI feel responsive rather than static. */
+button:not(:disabled):active,
+a[class*="bg-gold"]:active,
+a[class*="bg-indigo"]:active {
+  transform: translateY(1px);
+}
+
+/* Softer, layered shadow for raised surfaces (closer to how real light
+   falls off than a single hard shadow). */
+.shadow-premium {
+  box-shadow:
+    0 1px 2px rgba(30, 58, 95, 0.04),
+    0 4px 12px rgba(30, 58, 95, 0.06),
+    0 12px 28px rgba(30, 58, 95, 0.05);
+}
+
+/* Shimmer for skeleton placeholders — reads as "loading" more clearly
+   than a flat pulse, and looks considerably more polished. */
+@keyframes sm-shimmer {
+  100% { transform: translateX(100%); }
+}
+.animate-pulse {
+  position: relative;
+  overflow: hidden;
+}
+.animate-pulse::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background-image: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0) 0,
+    rgba(255, 255, 255, 0.45) 50%,
+    rgba(255, 255, 255, 0) 100%
+  );
+  animation: sm-shimmer 1.6s infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .animate-pulse::after { display: none; }
+}
+
+/* Content entering the viewport settles in rather than snapping. */
+@keyframes sm-fade-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+.animate-fade-up {
+  animation: sm-fade-up 0.35s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+
+/* Text selection in brand colours instead of browser default blue. */
+::selection {
+  background: rgba(201, 138, 43, 0.28);
+  color: #2B2318;
+}
+
+/* Slimmer, on-brand scrollbars on desktop (Firefox + WebKit). */
+@media (min-width: 1024px) {
+  * { scrollbar-width: thin; scrollbar-color: #D2BD87 transparent; }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb {
+    background: #D2BD87;
+    border-radius: 999px;
+    border: 3px solid transparent;
+    background-clip: content-box;
+  }
+  ::-webkit-scrollbar-thumb:hover { background-clip: content-box; background-color: #C9A96E; }
+}

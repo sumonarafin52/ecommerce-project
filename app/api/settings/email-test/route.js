@@ -5,6 +5,7 @@ import connectDB from "@/lib/db";
 import { hasPermission } from "@/lib/rbac";
 import { sendEmail } from "@/lib/email";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
+import { serverError } from "@/lib/apiError";
 
 export async function POST(request) {
   try {
@@ -32,6 +33,6 @@ export async function POST(request) {
 
     return NextResponse.json({ success: true, message: `Test email sent to ${recipient}` });
   } catch (error) {
-    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    return serverError(error, "api/settings/email-test");
   }
 }

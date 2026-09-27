@@ -70,7 +70,7 @@ export async function POST(request, { params }) {
       return NextResponse.json({ success: false, message: "No permission" }, { status: 403 });
     }
 
-    const limit = rateLimit(`refund:${session.user.id}`, { max: 20, windowMs: 10 * 60_000 });
+    const limit = await rateLimit(`refund:${session.user.id}`, { max: 20, windowMs: 10 * 60_000 });
     if (!limit.allowed) {
       return NextResponse.json({ success: false, message: "Too many refund attempts — please wait a few minutes." }, { status: 429 });
     }

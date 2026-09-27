@@ -8,7 +8,10 @@
     "start": "next start",
     "lint": "next lint",
     "migrate:order-status": "node scripts/migrate-order-status.js",
-    "test": "vitest run"
+    "test": "vitest run",
+    "reconcile:stock": "node scripts/reconcile-leaked-stock.js",
+    "create-admin": "node scripts/create-admin.js",
+    "preflight": "node scripts/preflight.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

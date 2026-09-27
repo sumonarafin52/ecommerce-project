@@ -7,6 +7,7 @@ import connectDB from "@/lib/db";
 import ShippingCarrier from "@/models/ShippingCarrier";
 import { hasPermission } from "@/lib/rbac";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
+import { serverError } from "@/lib/apiError";
 
 export async function GET() {
   try {
@@ -14,7 +15,7 @@ export async function GET() {
     const carriers = await ShippingCarrier.find().sort({ name: 1 }).lean();
     return NextResponse.json({ success: true, data: carriers });
   } catch (error) {
-    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    return serverError(error, "api/shipping/carriers");
   }
 }
 
@@ -43,6 +44,6 @@ export async function POST(request) {
     });
     return NextResponse.json({ success: true, data: carrier }, { status: 201 });
   } catch (error) {
-    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    return serverError(error, "api/shipping/carriers");
   }
 }

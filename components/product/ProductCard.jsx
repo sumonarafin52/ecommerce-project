@@ -8,6 +8,7 @@ import { useSession } from "next-auth/react";
 import useCartStore from "@/store/cartStore";
 import useWishlistStore from "@/store/wishlistStore";
 import { formatCurrency, getEffectivePrice, getDiscountPercentage, getTotalStock } from "@/lib/utils";
+import SmartImage from "@/components/ui/SmartImage";
 
 export default function ProductCard({ product }) {
   const router = useRouter();
@@ -44,14 +45,15 @@ export default function ProductCard({ product }) {
   };
 
   return (
-    <div className="group relative bg-cream-white border border-line rounded-xl overflow-hidden transition-all hover:shadow-[0_1px_2px_rgba(15,81,50,.06),0_8px_24px_rgba(15,81,50,.07)] hover:-translate-y-0.5">
+    <div className="group relative bg-cream-white border border-line rounded-xl overflow-hidden transition-all duration-300 hover:shadow-premium hover:-translate-y-1 hover:border-gold/40">
       <Link href={`/products/${product._id}`}>
         <div className="relative aspect-square bg-cream-alt overflow-hidden">
           {product.images?.[0] ? (
-            <img
+            <SmartImage
               src={product.images[0]}
               alt={product.name}
-              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+              sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
+              className="object-cover group-hover:scale-105 transition-transform duration-300"
             />
           ) : (
             <div className="w-full h-full flex items-center justify-center text-ink-muted text-sm">
@@ -70,7 +72,9 @@ export default function ProductCard({ product }) {
           )}
           <button
             onClick={handleWishlist}
-            className="absolute top-2.5 right-2.5 w-8 h-8 rounded-full bg-white shadow-[0_2px_6px_rgba(0,0,0,.12)] flex items-center justify-center text-sm"
+            className={`absolute top-2.5 right-2.5 w-8 h-8 rounded-full bg-white shadow-[0_2px_6px_rgba(0,0,0,.12)] flex items-center justify-center text-sm transition-all duration-200 hover:scale-110 active:scale-95 ${
+              wished ? "opacity-100" : "opacity-100 md:opacity-0 md:group-hover:opacity-100"
+            }`}
             aria-label={wished ? "Remove from wishlist" : "Add to wishlist"}
           >
             {wished ? "❤️" : "🤍"}
@@ -88,11 +92,18 @@ export default function ProductCard({ product }) {
           {product.name}
         </Link>
 
-        <div className="flex items-center gap-1 mt-2">
-          <span className="text-gold text-xs tracking-tight">
-            {"★".repeat(Math.round(product.ratingAvg)) + "☆".repeat(5 - Math.round(product.ratingAvg))}
-          </span>
-          <span className="text-[11px] text-ink-muted">({product.numReviews})</span>
+        <div className="flex items-center gap-1 mt-2 h-4">
+          {product.numReviews > 0 ? (
+            <>
+              <span className="text-gold text-xs tracking-tight" aria-label={`Rated ${(product.ratingAvg || 0).toFixed(1)} out of 5`}>
+                {"★".repeat(Math.round(product.ratingAvg || 0)) + "☆".repeat(5 - Math.round(product.ratingAvg || 0))}
+              </span>
+              <span className="text-[11px] text-ink-muted">({product.numReviews})</span>
+            </>
+          ) : (
+            // hollow stars + "(0)" reads as a bad rating; it's just new
+            <span className="text-[11px] font-semibold text-indigo-700">New</span>
+          )}
         </div>
 
         <div className="flex items-baseline gap-2 mt-2.5">

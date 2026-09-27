@@ -18,10 +18,12 @@ export default function Footer() {
     footerAbout: "SumonMart is Bangladesh's marketplace for local sellers — everyday goods, fast delivery, secure checkout.",
     footerCopyright: "© 2026 SumonMart — Made in Bangladesh",
     socialLinks: {},
+    storeEmail: "",
+    storePhone: "",
   });
 
   useEffect(() => {
-    fetch("/api/settings")
+    fetch("/api/settings", { cache: "no-store" })
       .then((r) => r.json())
       .then((res) => {
         if (res.success && res.data.general) {
@@ -32,17 +34,37 @@ export default function Footer() {
             footerAbout: g.footerAbout || b.footerAbout,
             footerCopyright: g.footerCopyright || b.footerCopyright,
             socialLinks: g.socialLinks || {},
+            storeEmail: g.storeEmail || "",
+            storePhone: g.storePhone || "",
           }));
         }
       })
       .catch(() => {});
   }, []);
 
-  const subscribe = (e) => {
+  const [subError, setSubError] = useState("");
+  const [subBusy, setSubBusy] = useState(false);
+
+  // Previously this only flipped local state — it showed "Thanks for
+  // subscribing!" while storing nothing, so every signup was silently lost.
+  const subscribe = async (e) => {
     e.preventDefault();
     if (!email.trim()) return;
-    setSubscribed(true);
-    setEmail("");
+    setSubError("");
+    setSubBusy(true);
+    try {
+      const res = await fetch("/api/newsletter", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, source: "footer" }),
+      }).then((r) => r.json());
+      if (!res.success) throw new Error(res.message);
+      setSubscribed(true);
+      setEmail("");
+    } catch (err) {
+      setSubError(err.message || "Couldn't subscribe right now");
+    }
+    setSubBusy(false);
   };
 
   const socials = [
@@ -74,16 +96,22 @@ export default function Footer() {
             <form onSubmit={subscribe} className="flex gap-2.5 w-full sm:w-auto">
               <input
                 type="email"
+                required
+                aria-label="Email address"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="you@example.com"
                 className="flex-1 sm:w-72 px-4 py-3 rounded-lg border-none text-sm text-ink outline-none"
               />
-              <button className="bg-gold hover:bg-gold-dark text-indigo-950 font-bold px-6 py-3 rounded-lg text-sm transition-colors shrink-0">
-                Subscribe
+              <button
+                disabled={subBusy}
+                className="bg-gold hover:bg-gold-dark text-indigo-950 font-bold px-6 py-3 rounded-lg text-sm transition-colors shrink-0 disabled:opacity-60"
+              >
+                {subBusy ? "..." : "Subscribe"}
               </button>
             </form>
           )}
+          {subError && !subscribed && <p className="w-full text-sm text-gold-light">{subError}</p>}
         </div>
       </div>
 
@@ -127,8 +155,15 @@ export default function Footer() {
           <div>
             <h4 className="text-white text-[13.5px] font-bold mb-3.5">Support</h4>
             <Link href="/track" className={linkCls}>Track Order</Link>
-            <a href="mailto:support@sumonmart.com" className={linkCls}>support@sumonmart.com</a>
-            <a href="tel:+8801700000000" className={linkCls}>+880 1700-000000</a>
+            <Link href="/contact" className={linkCls}>Contact Us</Link>
+            {/* real store contacts from Settings → General; hidden until set,
+                rather than showing placeholder details customers might use */}
+            {brand.storeEmail && (
+              <a href={`mailto:${brand.storeEmail}`} className={linkCls}>{brand.storeEmail}</a>
+            )}
+            {brand.storePhone && (
+              <a href={`tel:${brand.storePhone.replace(/[^\d+]/g, "")}`} className={linkCls}>{brand.storePhone}</a>
+            )}
           </div>
 
           <div>

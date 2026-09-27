@@ -10,6 +10,7 @@ import { NextResponse } from "next/server";
 import connectDB from "@/lib/db";
 import Product from "@/models/Product";
 import { escapeRegExp } from "@/lib/productSearch";
+import { serverError } from "@/lib/apiError";
 
 export async function GET(request) {
   try {
@@ -53,6 +54,6 @@ export async function GET(request) {
       },
     });
   } catch (error) {
-    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    return serverError(error, "api/products/suggest");
   }
 }

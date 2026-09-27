@@ -4,6 +4,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { formatCurrency } from "@/lib/utils";
+import SmartImage from "@/components/ui/SmartImage";
 
 // customSlides: admin-configured slides from Settings → Homepage → Hero Slider
 // (shape: { tag, title, subtitle, buttonText, buttonLink, image, active }).
@@ -79,10 +80,14 @@ export default function HeroSlider({ products = [], customSlides = [] }) {
         className={`relative rounded-[20px] overflow-hidden min-h-[400px] flex items-center text-white p-8 sm:p-11 group ${className}`}
       >
         {slide.image ? (
-          <img
+          <SmartImage
             src={slide.image}
             alt={slide.title}
-            className="absolute inset-0 w-full h-full object-cover z-0 group-hover:scale-105 transition-transform duration-500"
+            // homepage LCP element — load eagerly rather than lazily
+            priority
+            sizes="(max-width: 1024px) 100vw, 60vw"
+            quality={82}
+            className="object-cover z-0 group-hover:scale-105 transition-transform duration-500"
           />
         ) : (
           <div

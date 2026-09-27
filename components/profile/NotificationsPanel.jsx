@@ -12,6 +12,9 @@ const TYPE_ICON = {
   refund: "💰",
   account: "👤",
   promo: "🏷️",
+  inventory: "📉",
+  return: "↩️",
+  stock_alert: "🔔",
 };
 
 export default function NotificationsPanel() {

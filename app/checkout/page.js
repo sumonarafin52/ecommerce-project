@@ -81,6 +81,13 @@ export default function CheckoutPage() {
       .catch(() => setSettingsLoadFailed(true));
   }, []);
 
+  // Pre-fill the city from the delivery area picked in the header. A saved
+  // address (loaded below) overrides this, since it's more specific.
+  useEffect(() => {
+    const area = localStorage.getItem("sm_delivery_city");
+    if (area) setForm((f) => (f.city ? f : { ...f, city: area }));
+  }, []);
+
   // load saved addresses and auto-fill from the default one, if any — the
   // whole point of the address book is to skip re-typing this every time
   useEffect(() => {
@@ -113,7 +120,7 @@ export default function CheckoutPage() {
 
   const useNewAddress = () => {
     setSelectedAddressId("");
-    setForm({ fullName: "", phone: "", address: "", city: "", countryCode: "BD", country: "Bangladesh", state: "", postalCode: "" });
+    setForm({ fullName: "", phone: "", address: "", city: localStorage.getItem("sm_delivery_city") || "", countryCode: "BD", country: "Bangladesh", state: "", postalCode: "" });
   };
 
   const previewDiscount = useMemo(() => {
@@ -280,11 +287,15 @@ export default function CheckoutPage() {
         body: JSON.stringify({ orderId }),
       }).then((r) => r.json());
 
-      if (!payRes.success || !payRes.data.url) {
+      if (!payRes.success || !payRes.data?.url) {
         throw new Error(payRes.message || "Payment initiation failed");
       }
 
-      clearCart();
+      // Deliberately NOT clearing the cart here. The customer is about to
+      // leave for SSLCommerz's hosted page and may well cancel or fail —
+      // emptying the cart now would strand them with nothing to retry.
+      // It's cleared on the confirmed-payment return instead (see the
+      // ?payment=VALID handler in app/profile/page.js).
       window.location.href = payRes.data.url;
     } catch (err) {
       setError(err.message);
@@ -372,7 +383,7 @@ export default function CheckoutPage() {
 
         <h1 className="font-display text-2xl font-semibold text-ink mb-5">Checkout</h1>
 
-        <div className="grid lg:grid-cols-3 gap-6 items-start">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
           <form onSubmit={placeOrder} className="lg:col-span-2 space-y-4">
             <div className="bg-cream-white border border-line rounded-xl p-5 space-y-4">
               <h2 className="text-[15px] font-bold text-ink flex items-center gap-2">

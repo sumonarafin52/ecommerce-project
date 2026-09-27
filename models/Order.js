@@ -101,6 +101,11 @@ const orderSchema = new mongoose.Schema(
     // which transaction to refund.
     bankTranId: { type: String, default: "" },
     sslcommerzValId: { type: String, default: "" },
+    // Set once an order's reserved inventory has been returned to stock —
+    // currently when an online payment fails or is cancelled. Guards against
+    // double-restoring the same order's stock, and blocks re-initiating
+    // payment on an order that no longer holds its inventory.
+    stockReleased: { type: Boolean, default: false },
     orderStatus: {
       type: String,
       enum: ["pending", "processing", "on_hold", "shipped", "delivered", "cancelled", "returned"],
@@ -170,5 +175,21 @@ const orderSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+
+// Orders are queried constantly and had no indexes beyond _id, so every
+// one of these was a full collection scan.
+//
+// customer order history, and the admin list sorted newest-first
+orderSchema.index({ user: 1, createdAt: -1 });
+orderSchema.index({ createdAt: -1 });
+// dashboard stats and the status tabs in order management
+orderSchema.index({ orderStatus: 1, createdAt: -1 });
+orderSchema.index({ paymentStatus: 1, createdAt: -1 });
+// the draft-reuse lookup on checkout (user + pending + method + recency)
+orderSchema.index({ user: 1, paymentStatus: 1, paymentMethod: 1, createdAt: -1 });
+// public order tracking looks orders up by number
+orderSchema.index({ orderNumber: 1 });
+// the auto-fulfil sweep that runs on every order list load
+orderSchema.index({ orderStatus: 1, shippedAt: 1 });
 
 export default mongoose.models.Order || mongoose.model("Order", orderSchema);

@@ -7,6 +7,7 @@ import connectDB from "@/lib/db";
 import Wishlist from "@/models/Wishlist";
 import Product from "@/models/Product";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
+import { serverError } from "@/lib/apiError";
 
 export async function GET() {
   try {
@@ -26,7 +27,7 @@ export async function GET() {
       data: visible.map((w) => ({ _id: w._id, product: w.product, createdAt: w.createdAt })),
     });
   } catch (error) {
-    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    return serverError(error, "api/wishlist");
   }
 }
 
@@ -53,6 +54,6 @@ export async function POST(request) {
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    return serverError(error, "api/wishlist");
   }
 }

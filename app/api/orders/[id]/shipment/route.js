@@ -6,6 +6,7 @@ import Order from "@/models/Order";
 import { hasPermission } from "@/lib/rbac";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { notify } from "@/lib/notify";
+import { serverError } from "@/lib/apiError";
 
 export async function GET(request, { params }) {
   try {
@@ -29,7 +30,7 @@ export async function GET(request, { params }) {
 
     return NextResponse.json({ success: true, data: { orderStatus: order.orderStatus, shipment: order.shipment } });
   } catch (error) {
-    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    return serverError(error, "api/orders/[id]/shipment");
   }
 }
 
@@ -99,6 +100,6 @@ export async function PUT(request, { params }) {
     await order.save();
     return NextResponse.json({ success: true, data: { orderStatus: order.orderStatus, shipment: order.shipment } });
   } catch (error) {
-    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    return serverError(error, "api/orders/[id]/shipment");
   }
 }

@@ -8,6 +8,7 @@ import Product from "@/models/Product";
 import { hasPermission } from "@/lib/rbac";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { searchProducts } from "@/lib/productSearch";
+import { serverError } from "@/lib/apiError";
 
 export async function GET(request) {
   try {
@@ -27,7 +28,7 @@ export async function GET(request) {
       data: { products, total, page, totalPages, ...(didYouMean ? { didYouMean } : {}) },
     });
   } catch (error) {
-    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    return serverError(error, "api/products");
   }
 }
 // ===== AUTO SKU GENERATOR (SA-SKU-1, SA-SKU-2, ...) =====
@@ -95,6 +96,6 @@ export async function POST(request) {
     if (error.name === "ValidationError") {
       return NextResponse.json({ success: false, message: "Validation failed" }, { status: 400 });
     }
-    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    return serverError(error, "api/products");
   }
 }

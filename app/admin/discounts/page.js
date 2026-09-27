@@ -177,7 +177,7 @@ export default function AdminDiscountsPage() {
             No discount codes yet. Create your first coupon!
           </div>
         ) : (
-          <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
             {discounts.map((d) => (
               <div key={d._id} className={`bg-primary-light border rounded-xl p-5 space-y-3 transition-colors ${d.active ? "border-white/10 hover:border-accent/60" : "border-white/5 opacity-60"}`}>
                 <div className="flex items-start justify-between">

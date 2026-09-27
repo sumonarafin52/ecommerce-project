@@ -2,6 +2,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import SmartImage from "@/components/ui/SmartImage";
 
 export default function ProductGallery({ images, activeIndex, onIndexChange, productName, badges }) {
   const [zooming, setZooming] = useState(false);
@@ -75,12 +76,17 @@ export default function ProductGallery({ images, activeIndex, onIndexChange, pro
               className={`w-full h-full ${canHover ? "cursor-zoom-in" : "cursor-pointer"}`}
               aria-label="View full size"
             >
-              <img
-                key={activeIndex}
-                src={current}
-                alt={`${productName} ${activeIndex + 1}`}
-                className="w-full h-full object-contain transition-opacity duration-200"
-              />
+              <div className="relative w-full h-full">
+                <SmartImage
+                  key={activeIndex}
+                  src={current}
+                  alt={`${productName} ${activeIndex + 1}`}
+                  priority
+                  sizes="(max-width: 768px) 100vw, 45vw"
+                  quality={85}
+                  className="object-contain transition-opacity duration-200"
+                />
+              </div>
             </button>
 
             {/* hover magnifier lens — desktop only, hidden on touch devices
@@ -146,7 +152,15 @@ export default function ProductGallery({ images, activeIndex, onIndexChange, pro
                 i === activeIndex ? "border-indigo-900" : "border-line hover:border-indigo-700/50"
               }`}
             >
-              <img src={img} alt={`${productName} ${i + 1}`} className="w-full h-full object-contain bg-cream-alt" />
+              <div className="relative w-full h-full bg-cream-alt">
+                <SmartImage
+                  src={img}
+                  alt={`${productName} ${i + 1}`}
+                  sizes="64px"
+                  quality={60}
+                  className="object-contain"
+                />
+              </div>
             </button>
           ))}
         </div>

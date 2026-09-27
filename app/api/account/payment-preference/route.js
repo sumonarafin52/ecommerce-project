@@ -4,6 +4,7 @@ import { getServerSession } from "next-auth";
 import connectDB from "@/lib/db";
 import PaymentPreference from "@/models/PaymentPreference";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
+import { serverError } from "@/lib/apiError";
 
 const VALID_METHODS = ["cod", "sslcommerz"];
 const VALID_WALLETS = ["", "bkash", "nagad", "rocket"];
@@ -22,7 +23,7 @@ export async function GET() {
       data: pref || { defaultMethod: "cod", walletProvider: "", walletNumber: "" },
     });
   } catch (error) {
-    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    return serverError(error, "api/account/payment-preference");
   }
 }
 
@@ -62,6 +63,6 @@ export async function PUT(request) {
 
     return NextResponse.json({ success: true, data: updated });
   } catch (error) {
-    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    return serverError(error, "api/account/payment-preference");
   }
 }

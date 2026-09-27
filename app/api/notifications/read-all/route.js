@@ -4,6 +4,7 @@ import { getServerSession } from "next-auth";
 import connectDB from "@/lib/db";
 import Notification from "@/models/Notification";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
+import { serverError } from "@/lib/apiError";
 
 export async function PUT() {
   try {
@@ -16,6 +17,6 @@ export async function PUT() {
     await Notification.updateMany({ user: session.user.id, read: false }, { $set: { read: true } });
     return NextResponse.json({ success: true });
   } catch (error) {
-    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    return serverError(error, "api/notifications/read-all");
   }
 }

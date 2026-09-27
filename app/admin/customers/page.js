@@ -258,7 +258,7 @@ export default function AdminCustomersPage() {
               </p>
             </div>
 
-            <div className="grid md:grid-cols-2 xl:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
               {roles
                 .filter((r) => r.role !== "admin")
                 .map((r) => (

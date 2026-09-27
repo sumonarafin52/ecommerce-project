@@ -9,6 +9,7 @@ import Settings from "@/models/Settings";
 import { hasPermission } from "@/lib/rbac";
 import { claimNextInvoiceNumber } from "@/lib/invoice";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
+import { serverError } from "@/lib/apiError";
 
 export async function GET(request, { params }) {
   try {
@@ -72,6 +73,6 @@ export async function GET(request, { params }) {
       },
     });
   } catch (error) {
-    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    return serverError(error, "api/orders/[id]/invoice");
   }
 }

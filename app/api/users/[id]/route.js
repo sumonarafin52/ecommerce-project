@@ -7,6 +7,7 @@ import connectDB from "@/lib/db";
 import User from "@/models/User";
 import { hasPermission, STAFF_ROLES } from "@/lib/rbac";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
+import { serverError } from "@/lib/apiError";
 
 // Staff (e.g. "Customer Support") who only have the "customers" permission
 // can view/edit a customer's name & email, but must NOT be able to change
@@ -30,7 +31,7 @@ export async function GET(request, { params }) {
     }
     return NextResponse.json({ success: true, data: user });
   } catch (error) {
-    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    return serverError(error, "api/users/[id]");
   }
 }
 
@@ -78,7 +79,7 @@ export async function PUT(request, { params }) {
     }
     return NextResponse.json({ success: true, data: user });
   } catch (error) {
-    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    return serverError(error, "api/users/[id]");
   }
 }
 
@@ -104,6 +105,6 @@ export async function DELETE(request, { params }) {
     }
     return NextResponse.json({ success: true, message: "User deleted" });
   } catch (error) {
-    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    return serverError(error, "api/users/[id]");
   }
 }

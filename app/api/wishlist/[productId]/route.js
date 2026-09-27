@@ -4,6 +4,7 @@ import { getServerSession } from "next-auth";
 import connectDB from "@/lib/db";
 import Wishlist from "@/models/Wishlist";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
+import { serverError } from "@/lib/apiError";
 
 export async function DELETE(request, { params }) {
   try {
@@ -16,6 +17,6 @@ export async function DELETE(request, { params }) {
     await Wishlist.deleteOne({ user: session.user.id, product: params.productId });
     return NextResponse.json({ success: true });
   } catch (error) {
-    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    return serverError(error, "api/wishlist/[productId]");
   }
 }

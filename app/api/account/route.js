@@ -4,6 +4,7 @@ import { getServerSession } from "next-auth";
 import connectDB from "@/lib/db";
 import User from "@/models/User";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
+import { serverError } from "@/lib/apiError";
 
 export async function GET() {
   try {
@@ -19,7 +20,7 @@ export async function GET() {
     }
     return NextResponse.json({ success: true, data: user });
   } catch (error) {
-    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    return serverError(error, "api/account");
   }
 }
 
@@ -55,6 +56,6 @@ export async function PUT(request) {
 
     return NextResponse.json({ success: true, data: updated });
   } catch (error) {
-    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    return serverError(error, "api/account");
   }
 }

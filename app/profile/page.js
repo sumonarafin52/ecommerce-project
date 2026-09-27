@@ -4,10 +4,15 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useSession, signOut } from "next-auth/react";
-import { formatCurrency, formatDate, formatDateTime } from "@/lib/utils";
+import { useRouter } from "next/navigation";
+import toast from "react-hot-toast";
+import { formatCurrency, formatDate, formatDateTime, getEffectivePrice } from "@/lib/utils";
 import TrackingTimeline from "@/components/order/TrackingTimeline";
+import useCartStore from "@/store/cartStore";
 import { ORDER_STATUS_LABELS, ORDER_STATUS_COLORS } from "@/lib/orderStatus";
 import AddressBook from "@/components/profile/AddressBook";
+import ReturnRequestModal from "@/components/profile/ReturnRequestModal";
+import { Skeleton, OrderCardSkeleton } from "@/components/ui/Skeleton";
 import WishlistPanel from "@/components/profile/WishlistPanel";
 import SettingsPanel from "@/components/profile/SettingsPanel";
 import PaymentMethodsPanel from "@/components/profile/PaymentMethodsPanel";
@@ -25,6 +30,23 @@ const HISTORY_TYPES = {
   hold_released: "▶️",
   refund: "💰",
   shipment_created: "📦",
+};
+
+const RETURN_WINDOW_DAYS = 7; // keep in sync with models/ReturnRequest.js
+
+const RETURN_STATUS_LABELS = {
+  requested: "Return requested",
+  approved: "Return approved — send it back",
+  rejected: "Return not approved",
+  received: "Item received — refund pending",
+  refunded: "Refunded",
+};
+const RETURN_STATUS_COLORS = {
+  requested: "bg-gold-light text-gold-dark",
+  approved: "bg-indigo-100 text-indigo-900",
+  rejected: "bg-brick/10 text-brick",
+  received: "bg-indigo-100 text-indigo-900",
+  refunded: "bg-green-100 text-green-700",
 };
 
 const payColors = {
@@ -56,9 +78,14 @@ export default function ProfilePage() {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [paymentMsg, setPaymentMsg] = useState(null);
+  const clearCart = useCartStore((s) => s.clearCart);
+  const addToCart = useCartStore((s) => s.addItem);
+  const router = useRouter();
   const [busyId, setBusyId] = useState("");
   const [trackingOpenId, setTrackingOpenId] = useState("");
   const [historyOpenId, setHistoryOpenId] = useState("");
+  const [returns, setReturns] = useState([]);
+  const [returnOrder, setReturnOrder] = useState(null); // order the return modal is open for
   const [trackingData, setTrackingData] = useState({});
   const [digitalDownloads, setDigitalDownloads] = useState({});
   const [downloadingId, setDownloadingId] = useState("");
@@ -110,45 +137,143 @@ export default function ProfilePage() {
   useEffect(() => {
     const payment = new URLSearchParams(window.location.search).get("payment");
     if (payment === "VALID" || payment === "VALIDATED") {
+      // Payment confirmed — this is the only point at which it's safe to
+      // empty the cart (it's deliberately kept through the redirect so a
+      // cancelled or failed payment leaves the customer able to retry).
+      clearCart();
       setPaymentMsg({ type: "ok", text: "Payment successful! Your order is being processed." });
     } else if (payment === "FAILED") {
-      setPaymentMsg({ type: "bad", text: "Payment failed. Please try again." });
+      setPaymentMsg({
+        type: "bad",
+        text: "Payment failed, so the order wasn't placed. Your cart is still saved — you can try again from there.",
+      });
     } else if (payment === "CANCELLED") {
-      setPaymentMsg({ type: "bad", text: "Payment cancelled. Your order is still pending." });
+      setPaymentMsg({
+        type: "bad",
+        text: "Payment cancelled — the order wasn't placed. Your cart is still saved if you'd like to try again.",
+      });
     } else if (payment === "RATE_LIMITED") {
       setPaymentMsg({ type: "bad", text: "Too many payment attempts — please wait a few minutes and try again." });
     }
   }, []);
 
   const loadOrders = () => {
-    fetch("/api/orders")
+    fetch("/api/orders", { cache: "no-store" })
       .then((r) => r.json())
       .then((res) => {
         const list = res.success ? (Array.isArray(res.data) ? res.data : res.data.orders || []) : [];
         setOrders(list);
-        // check paid orders for digital items to download — a plain list
-        // check, doesn't count as a "download" (see the API route)
-        list
-          .filter((o) => o.paymentStatus === "paid")
-          .forEach((o) => {
-            fetch(`/api/orders/${o._id}/downloads`)
-              .then((r) => r.json())
-              .then((dres) => {
-                if (dres.success && dres.data.length) {
-                  setDigitalDownloads((d) => ({ ...d, [o._id]: dres.data }));
-                }
-              })
-              .catch(() => {});
-          });
       })
       .catch(() => {})
       .finally(() => setLoading(false));
+
+    // One bulk call for every order's digital downloads, instead of one
+    // request per paid order (which was 40 round-trips for a customer with
+    // 40 paid orders). Runs alongside the order list rather than blocking it.
+    fetch("/api/account/downloads", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((res) => {
+        if (res.success) setDigitalDownloads(res.data || {});
+      })
+      .catch(() => {});
+
+    fetch("/api/returns", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((res) => {
+        if (res.success) setReturns(res.data || []);
+      })
+      .catch(() => {});
+  };
+
+  // Units of each line still eligible for return: purchased, minus anything
+  // already in a non-rejected request. Mirrors the server's check so the
+  // button only appears when a request can actually succeed.
+  const returnableLines = (order) => {
+    const taken = new Map();
+    for (const r of returns) {
+      if (String(r.order) !== String(order._id) || r.status === "rejected") continue;
+      for (const it of r.items) {
+        const k = `${it.product}::${it.combinationKey || ""}`;
+        taken.set(k, (taken.get(k) || 0) + it.quantity);
+      }
+    }
+    return order.items
+      .map((l) => {
+        const key = `${l.product}::${l.combinationKey || ""}`;
+        return { ...l, key, remaining: l.quantity - (taken.get(key) || 0) };
+      })
+      .filter((l) => l.remaining > 0);
+  };
+
+  const withinReturnWindow = (order) => {
+    if (order.orderStatus !== "delivered") return false;
+    const delivered = new Date(order.deliveredAt || order.updatedAt).getTime();
+    return Date.now() - delivered <= RETURN_WINDOW_DAYS * 24 * 60 * 60 * 1000;
   };
 
   useEffect(() => {
     if (status === "authenticated") loadOrders();
     else setLoading(false);
   }, [status]);
+
+  const cancelOrder = async (order) => {
+    const reason = window.prompt("Cancel this order? You can tell us why (optional):", "");
+    if (reason === null) return; // dismissed
+    setBusyId(order._id);
+    try {
+      const res = await fetch(`/api/orders/${order._id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cancelByCustomer: true, reason }),
+      }).then((r) => r.json());
+      if (!res.success) throw new Error(res.message);
+      toast.success("Order cancelled");
+      loadOrders();
+    } catch (err) {
+      toast.error(err.message || "Couldn't cancel this order");
+    }
+    setBusyId("");
+  };
+
+  // Re-adds a past order's items at TODAY's price and stock — never the
+  // historical order values — and skips anything no longer available.
+  const buyAgain = async (order) => {
+    setBusyId(order._id);
+    let added = 0;
+    const skipped = [];
+    for (const line of order.items) {
+      try {
+        const res = await fetch(`/api/products/${line.product}`, { cache: "no-store" }).then((r) => r.json());
+        const p = res.success ? res.data : null;
+        if (!p || p.status !== "public") { skipped.push(line.name); continue; }
+        let item = p;
+        let stock = p.stock;
+        if (line.combinationKey) {
+          const combo = (p.combinations || []).find((c) => c.key === line.combinationKey && c.active !== false);
+          if (!combo) { skipped.push(line.name); continue; }
+          stock = combo.stock;
+          item = {
+            ...p,
+            name: `${p.name} (${combo.key})`,
+            price: combo.price > 0 ? combo.price : getEffectivePrice(p),
+            discountPrice: 0,
+            stock: combo.stock,
+            combinationKey: combo.key,
+          };
+        }
+        const qty = Math.min(line.quantity, stock);
+        if (qty <= 0) { skipped.push(line.name); continue; }
+        for (let i = 0; i < qty; i++) addToCart(item);
+        added++;
+      } catch {
+        skipped.push(line.name);
+      }
+    }
+    setBusyId("");
+    if (added) toast.success(`Added ${added} item${added === 1 ? "" : "s"} to your cart`);
+    if (skipped.length) toast.error(`Not available right now: ${skipped.join(", ")}`, { duration: 6000 });
+    if (added) router.push("/cart");
+  };
 
   const confirmReceipt = async (id) => {
     setBusyId(id);
@@ -192,8 +317,30 @@ export default function ProfilePage() {
 
   if (status === "loading" || loading) {
     return (
-      <div className="bg-cream-bg min-h-screen flex items-center justify-center font-body2">
-        <div className="w-10 h-10 border-4 border-indigo-900 border-t-transparent rounded-full animate-spin" />
+      <div className="bg-cream-bg min-h-screen font-body2">
+        <div className="max-w-7xl mx-auto px-4 py-6">
+          <Skeleton className="h-4 w-40 mb-5" />
+          <div className="grid grid-cols-1 lg:grid-cols-[260px_1fr] gap-7">
+            <div className="hidden lg:block space-y-2">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <Skeleton key={i} className="h-11 w-full rounded-lg" />
+              ))}
+            </div>
+            <div className="space-y-5">
+              <Skeleton className="h-28 w-full rounded-xl" />
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <Skeleton key={i} className="h-20 rounded-xl" />
+                ))}
+              </div>
+              <div className="space-y-4">
+                {Array.from({ length: 2 }).map((_, i) => (
+                  <OrderCardSkeleton key={i} />
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     );
   }
@@ -239,7 +386,7 @@ export default function ProfilePage() {
           <span className="text-ink">My Account</span>
         </nav>
 
-        <div className="grid lg:grid-cols-[260px_1fr] gap-7 pb-14">
+        <div className="grid grid-cols-1 lg:grid-cols-[260px_1fr] gap-7 pb-14">
           <aside className="bg-cream-white border border-line rounded-xl p-2.5 h-fit lg:sticky lg:top-4 space-y-0.5">
             {navItems.map((item) => (
               <button key={item.key} onClick={() => setTab(item.key)} className={navItemCls(tab === item.key)}>
@@ -316,7 +463,13 @@ export default function ProfilePage() {
                           </p>
                         </div>
                         <div className="flex gap-2">
-                          <span className={badge(payColors[order.paymentStatus] || payColors.pending)}>{order.paymentStatus}</span>
+                          {/* An unpaid order that's been cancelled owes nothing — "pending"
+                              there reads as an outstanding bill. */}
+                          {["cancelled", "returned"].includes(order.orderStatus) && order.paymentStatus !== "paid" && order.paymentStatus !== "refunded" ? (
+                            <span className={badge("bg-line text-ink-muted")}>Not charged</span>
+                          ) : (
+                            <span className={badge(payColors[order.paymentStatus] || payColors.pending)}>{order.paymentStatus}</span>
+                          )}
                           <span className={badge(ORDER_STATUS_COLORS[order.orderStatus] || ORDER_STATUS_COLORS.processing)}>
                             {ORDER_STATUS_LABELS[order.orderStatus] || order.orderStatus}
                           </span>
@@ -377,6 +530,26 @@ export default function ProfilePage() {
                           >
                             {historyOpenId === order._id ? "Hide history" : "Order history"}
                           </button>
+                          {["delivered", "cancelled", "returned"].includes(order.orderStatus) && (
+                            <button
+                              onClick={() => buyAgain(order)}
+                              disabled={busyId === order._id}
+                              className="text-xs font-bold text-indigo-900 hover:underline underline-offset-2 disabled:opacity-50"
+                            >
+                              ↻ Buy again
+                            </button>
+                          )}
+                          {["pending", "processing", "on_hold"].includes(order.orderStatus) &&
+                            order.paymentStatus !== "paid" &&
+                            !order.fulfillments?.length && (
+                              <button
+                                onClick={() => cancelOrder(order)}
+                                disabled={busyId === order._id}
+                                className="text-xs font-bold text-brick hover:underline underline-offset-2 disabled:opacity-50"
+                              >
+                                Cancel order
+                              </button>
+                            )}
                         </div>
 
                         {/* shipped = customer confirm receipt option */}
@@ -394,7 +567,34 @@ export default function ProfilePage() {
                             Delivered {order.deliveredAt ? `on ${formatDate(order.deliveredAt)}` : ""}
                           </span>
                         )}
+                        {withinReturnWindow(order) && returnableLines(order).length > 0 && (
+                          <button
+                            onClick={() => setReturnOrder(order)}
+                            className="text-xs font-bold text-indigo-900 border-[1.5px] border-indigo-700/30 hover:bg-indigo-100 rounded-lg px-3 py-1.5 transition-colors"
+                          >
+                            ↩ Request return
+                          </button>
+                        )}
                       </div>
+
+                      {returns
+                        .filter((r) => String(r.order) === String(order._id))
+                        .map((r) => (
+                          <div
+                            key={r._id}
+                            className="border-t border-line pt-3 flex flex-wrap items-center justify-between gap-2 text-xs"
+                          >
+                            <span className="text-ink-soft">
+                              Return: {r.items.map((i) => `${i.name} × ${i.quantity}`).join(", ")}
+                            </span>
+                            <span className={badge(RETURN_STATUS_COLORS[r.status] || "bg-line text-ink-muted") + " normal-case"}>
+                              {RETURN_STATUS_LABELS[r.status] || r.status}
+                            </span>
+                            {r.status === "rejected" && r.adminNote && (
+                              <p className="w-full text-[11px] text-ink-muted">Note from us: {r.adminNote}</p>
+                            )}
+                          </div>
+                        ))}
 
                       {digitalDownloads[order._id]?.length > 0 && (
                         <div className="border-t border-line pt-3 space-y-2">
@@ -468,6 +668,18 @@ export default function ProfilePage() {
           {tab === "settings" && <SettingsPanel />}
         </div>
       </div>
+
+      {returnOrder && (
+        <ReturnRequestModal
+          order={returnOrder}
+          returnable={returnableLines(returnOrder)}
+          onClose={() => setReturnOrder(null)}
+          onSubmitted={() => {
+            setReturnOrder(null);
+            loadOrders();
+          }}
+        />
+      )}
 
       {/* ===== REVIEW MODAL ===== */}
       {review && (

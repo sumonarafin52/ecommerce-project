@@ -5,6 +5,7 @@ import connectDB from "@/lib/db";
 import ShippingMethod from "@/models/ShippingMethod";
 import { hasPermission } from "@/lib/rbac";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
+import { serverError } from "@/lib/apiError";
 
 async function requirePermission() {
   const session = await getServerSession(authOptions);
@@ -42,7 +43,7 @@ export async function PUT(request, { params }) {
     if (!method) return NextResponse.json({ success: false, message: "Method not found" }, { status: 404 });
     return NextResponse.json({ success: true, data: method });
   } catch (error) {
-    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    return serverError(error, "api/shipping/methods/[id]");
   }
 }
 
@@ -55,6 +56,6 @@ export async function DELETE(request, { params }) {
     await ShippingMethod.findByIdAndDelete(params.id);
     return NextResponse.json({ success: true });
   } catch (error) {
-    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    return serverError(error, "api/shipping/methods/[id]");
   }
 }

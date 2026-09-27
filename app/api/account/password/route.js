@@ -5,7 +5,9 @@ import bcrypt from "bcryptjs";
 import connectDB from "@/lib/db";
 import User from "@/models/User";
 import { rateLimit } from "@/lib/rateLimit";
+import { validatePassword } from "@/lib/authValidation";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
+import { serverError } from "@/lib/apiError";
 
 export async function POST(request) {
   try {
@@ -18,7 +20,7 @@ export async function POST(request) {
     // limits attempts against this account specifically — protects against
     // someone with a hijacked/stolen session trying to brute-force the
     // current password to lock the real owner out
-    const limit = rateLimit(`change-password:${session.user.id}`, { max: 8, windowMs: 10 * 60_000 });
+    const limit = await rateLimit(`change-password:${session.user.id}`, { max: 8, windowMs: 10 * 60_000 });
     if (!limit.allowed) {
       return NextResponse.json({ success: false, message: "Too many attempts. Please try again in a few minutes." }, { status: 429 });
     }
@@ -27,8 +29,11 @@ export async function POST(request) {
     if (!currentPassword || !newPassword) {
       return NextResponse.json({ success: false, message: "Current and new password are required" }, { status: 400 });
     }
-    if (newPassword.length < 6) {
-      return NextResponse.json({ success: false, message: "New password must be at least 6 characters" }, { status: 400 });
+    // same strength rules the signup form enforces, so a strong password
+    // can't be weakened later via this endpoint
+    const passwordError = validatePassword(newPassword, { name: session.user.name, email: session.user.email });
+    if (passwordError) {
+      return NextResponse.json({ success: false, message: passwordError }, { status: 400 });
     }
 
     const user = await User.findById(session.user.id).select("+password");
@@ -41,11 +46,11 @@ export async function POST(request) {
       return NextResponse.json({ success: false, message: "Current password is incorrect" }, { status: 400 });
     }
 
-    user.password = await bcrypt.hash(newPassword, 10);
+    user.password = await bcrypt.hash(newPassword, 12);
     await user.save();
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    return serverError(error, "api/account/password");
   }
 }

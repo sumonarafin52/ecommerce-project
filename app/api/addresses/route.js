@@ -6,6 +6,7 @@ import { getServerSession } from "next-auth";
 import connectDB from "@/lib/db";
 import Address from "@/models/Address";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
+import { serverError } from "@/lib/apiError";
 
 export async function GET() {
   try {
@@ -18,7 +19,7 @@ export async function GET() {
     const addresses = await Address.find({ user: session.user.id }).sort({ isDefault: -1, createdAt: -1 }).lean();
     return NextResponse.json({ success: true, data: addresses });
   } catch (error) {
-    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    return serverError(error, "api/addresses");
   }
 }
 
@@ -61,6 +62,6 @@ export async function POST(request) {
 
     return NextResponse.json({ success: true, data: created });
   } catch (error) {
-    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    return serverError(error, "api/addresses");
   }
 }

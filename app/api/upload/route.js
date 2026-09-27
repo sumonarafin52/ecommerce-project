@@ -4,6 +4,7 @@ import { getServerSession } from "next-auth";
 import { createHash } from "crypto";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { hasPermission } from "@/lib/rbac";
+import { serverError } from "@/lib/apiError";
 
 // Two allow-lists: plain images (logos, product photos, banners) and the
 // broader set Digital Products needs (ebooks/zips). SVG is scoped to images
@@ -164,6 +165,6 @@ export async function POST(request) {
       { status: 500 }
     );
   } catch (error) {
-    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    return serverError(error, "api/upload");
   }
 }

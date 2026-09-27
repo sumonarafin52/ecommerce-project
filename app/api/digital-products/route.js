@@ -7,6 +7,7 @@ import connectDB from "@/lib/db";
 import DigitalProduct from "@/models/DigitalProduct";
 import { hasPermission } from "@/lib/rbac";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
+import { serverError } from "@/lib/apiError";
 
 // GET: admin — sob digital product list
 export async function GET() {
@@ -22,7 +23,7 @@ export async function GET() {
     const items = await DigitalProduct.find().sort({ createdAt: -1 }).lean();
     return NextResponse.json({ success: true, data: items });
   } catch (error) {
-    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    return serverError(error, "api/digital-products");
   }
 }
 
@@ -58,6 +59,6 @@ export async function POST(request) {
 
     return NextResponse.json({ success: true, data: item }, { status: 201 });
   } catch (error) {
-    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    return serverError(error, "api/digital-products");
   }
 }

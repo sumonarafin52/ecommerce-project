@@ -15,7 +15,9 @@ import { rateLimit } from "@/lib/rateLimit";
 import { notify } from "@/lib/notify";
 import { atomicDecrement, adjustStock } from "@/lib/productStock";
 import { runInTransaction } from "@/lib/dbTransaction";
+import { checkLowStock } from "@/lib/inventoryEvents";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
+import { serverError } from "@/lib/apiError";
 
 const THIRTY_DAYS = 30 * 24 * 60 * 60 * 1000;
 // How recent a pending SSLCommerz order has to be for a fresh checkout to
@@ -73,7 +75,7 @@ export async function GET(request) {
 
     return NextResponse.json({ success: true, data: orders });
   } catch (error) {
-    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    return serverError(error, "api/orders");
   }
 }
 
@@ -89,7 +91,7 @@ export async function POST(request) {
 
     // Staff creating orders on a customer's behalf get a higher ceiling —
     // ordinary shoppers checking out repeatedly is what this guards against.
-    const limit = rateLimit(`order-create:${session.user.id}`, { max: isAdmin ? 60 : 15, windowMs: 10 * 60_000 });
+    const limit = await rateLimit(`order-create:${session.user.id}`, { max: isAdmin ? 60 : 15, windowMs: 10 * 60_000 });
     if (!limit.allowed) {
       return NextResponse.json({ success: false, message: "Too many orders placed recently — please wait a few minutes." }, { status: 429 });
     }
@@ -476,6 +478,14 @@ export async function POST(request) {
     }
     if (!finalOrder) {
       return NextResponse.json({ success: false, message: "Failed to place order — please try again." }, { status: 500 });
+    }
+
+    // Stock has now genuinely left inventory (the transaction committed), so
+    // tell admins about anything that just ran low or sold out. Runs here,
+    // never inside the transaction, which could still have rolled back.
+    // Skipped for a reused draft, whose stock was counted when first placed.
+    if (!existing) {
+      checkLowStock(orderItems);
     }
 
     await notify({

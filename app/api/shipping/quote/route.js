@@ -4,6 +4,7 @@ import connectDB from "@/lib/db";
 import ShippingZone from "@/models/ShippingZone";
 import ShippingMethod from "@/models/ShippingMethod";
 import Product from "@/models/Product";
+import { serverError } from "@/lib/apiError";
 
 // Finds the best-matching zone for a city: exact region match wins; a zone
 // with no regions listed acts as a catch-all fallback (e.g. "International"
@@ -66,6 +67,6 @@ export async function POST(request) {
 
     return NextResponse.json({ success: true, data: { zone: { _id: zone._id, name: zone.name }, methods: quoted } });
   } catch (error) {
-    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    return serverError(error, "api/shipping/quote");
   }
 }

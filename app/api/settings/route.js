@@ -9,6 +9,7 @@ import { hasPermission } from "@/lib/rbac";
 import { PAYMENT_GATEWAYS, MASK, isGatewayConfigured } from "@/lib/paymentGateways";
 import { encryptSecret } from "@/lib/crypto";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
+import { serverError } from "@/lib/apiError";
 
 // there is only ever one Settings document — fetch it, creating a default
 // one on first use so the rest of the app never has to null-check
@@ -88,7 +89,7 @@ export async function GET(request) {
     const data = isAdminViewer ? toAdminSafeJSON(settings) : toPublicJSON(settings);
     return NextResponse.json({ success: true, data });
   } catch (error) {
-    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    return serverError(error, "api/settings");
   }
 }
 
@@ -201,6 +202,6 @@ export async function PUT(request) {
 
     return NextResponse.json({ success: true, data: toAdminSafeJSON(settings), warnings: paymentWarnings });
   } catch (error) {
-    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    return serverError(error, "api/settings");
   }
 }

@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import connectDB from "@/lib/db";
 import Order from "@/models/Order";
 import { rateLimit, getClientIp } from "@/lib/rateLimit";
+import { serverError } from "@/lib/apiError";
 
 // Public tracking — no login required, but gated by knowing both the order
 // number AND the phone number on the order, and rate-limited per IP so it
@@ -13,7 +14,7 @@ export async function POST(request) {
     await connectDB();
 
     const ip = getClientIp(request);
-    const limit = rateLimit(`track:${ip}`, { max: 20, windowMs: 10 * 60_000 });
+    const limit = await rateLimit(`track:${ip}`, { max: 20, windowMs: 10 * 60_000 });
     if (!limit.allowed) {
       return NextResponse.json({ success: false, message: "Too many attempts. Try again shortly." }, { status: 429 });
     }
@@ -45,6 +46,6 @@ export async function POST(request) {
       },
     });
   } catch (error) {
-    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    return serverError(error, "api/track");
   }
 }

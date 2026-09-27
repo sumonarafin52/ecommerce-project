@@ -15,6 +15,10 @@ const Icon = ({ d, className = "w-5 h-5" }) => (
 
 const icons = {
   home: "M3 12l9-9 9 9M5 10v10a1 1 0 001 1h4v-6h4v6h4a1 1 0 001-1V10",
+  returns: "M9 15L3 9m0 0l6-6M3 9h12a6 6 0 010 12h-3",
+  support: "M8 10h.01M12 10h.01M16 10h.01M21 12c0 4.4-4 8-9 8a9.9 9.9 0 01-4.3-1L3 20l1.4-3.7A7.6 7.6 0 013 12c0-4.4 4-8 9-8s9 3.6 9 8z",
+  newsletter: "M3 8l7.9 5.3a2 2 0 002.2 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z",
+  questions: "M8.2 9a4 4 0 017.6 1c0 2-3 3-3 3m.2 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z",
   orders: "M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z",
   products: "M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4",
   customers: "M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z",
@@ -62,6 +66,10 @@ export default function AdminLayout({ children }) {
   const nav = [
     { href: "/admin", label: "Home", icon: icons.home, perm: "dashboard" },
     { href: "/admin/orders", label: "Orders", icon: icons.orders, perm: "orders", badge: orderCount },
+    { href: "/admin/returns", label: "Returns", icon: icons.returns, perm: "orders" },
+    { href: "/admin/support", label: "Support", icon: icons.support, perm: "customers" },
+    { href: "/admin/newsletter", label: "Newsletter", icon: icons.newsletter, perm: "customers" },
+    { href: "/admin/questions", label: "Product Q&A", icon: icons.questions, perm: "products" },
     {
       key: "products",
       label: "Products",

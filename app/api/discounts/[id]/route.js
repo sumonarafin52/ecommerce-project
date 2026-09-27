@@ -5,6 +5,7 @@ import connectDB from "@/lib/db";
 import Discount from "@/models/Discount";
 import { hasPermission } from "@/lib/rbac";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
+import { serverError } from "@/lib/apiError";
 
 // PUT: admin discount edit / active toggle
 export async function PUT(request, { params }) {
@@ -59,7 +60,7 @@ export async function PUT(request, { params }) {
     }
     return NextResponse.json({ success: true, data: discount });
   } catch (error) {
-    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    return serverError(error, "api/discounts/[id]");
   }
 }
 
@@ -81,6 +82,6 @@ export async function DELETE(request, { params }) {
     }
     return NextResponse.json({ success: true, message: "Discount deleted" });
   } catch (error) {
-    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    return serverError(error, "api/discounts/[id]");
   }
 }

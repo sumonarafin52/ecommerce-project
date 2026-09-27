@@ -7,6 +7,7 @@ import connectDB from "@/lib/db";
 import Discount from "@/models/Discount";
 import { hasPermission } from "@/lib/rbac";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
+import { serverError } from "@/lib/apiError";
 
 // GET ?code=XXX  → checkout e coupon validate (logged-in user)
 // GET (no code)  → admin: sob discount list
@@ -50,7 +51,7 @@ export async function GET(request) {
     const discounts = await Discount.find().sort({ createdAt: -1 });
     return NextResponse.json({ success: true, data: discounts });
   } catch (error) {
-    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    return serverError(error, "api/discounts");
   }
 }
 
@@ -102,6 +103,6 @@ export async function POST(request) {
 
     return NextResponse.json({ success: true, data: discount }, { status: 201 });
   } catch (error) {
-    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    return serverError(error, "api/discounts");
   }
 }

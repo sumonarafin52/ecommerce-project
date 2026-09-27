@@ -4,6 +4,7 @@ import { getServerSession } from "next-auth";
 import connectDB from "@/lib/db";
 import Address from "@/models/Address";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
+import { serverError } from "@/lib/apiError";
 
 export async function PUT(request, { params }) {
   try {
@@ -38,7 +39,7 @@ export async function PUT(request, { params }) {
     await existing.save();
     return NextResponse.json({ success: true, data: existing });
   } catch (error) {
-    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    return serverError(error, "api/addresses/[id]");
   }
 }
 
@@ -70,6 +71,6 @@ export async function DELETE(request, { params }) {
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    return serverError(error, "api/addresses/[id]");
   }
 }

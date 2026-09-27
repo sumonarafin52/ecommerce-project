@@ -8,6 +8,7 @@ import Review from "@/models/Review";
 import Order from "@/models/Order";
 import Product from "@/models/Product";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
+import { serverError } from "@/lib/apiError";
 
 export async function GET(request) {
   try {
@@ -24,7 +25,7 @@ export async function GET(request) {
 
     return NextResponse.json({ success: true, data: reviews });
   } catch (error) {
-    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    return serverError(error, "api/reviews");
   }
 }
 
@@ -86,6 +87,6 @@ export async function POST(request) {
 
     return NextResponse.json({ success: true, data: review }, { status: 201 });
   } catch (error) {
-    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    return serverError(error, "api/reviews");
   }
 }

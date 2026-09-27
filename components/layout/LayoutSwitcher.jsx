@@ -7,6 +7,7 @@ import Header from "@/components/layout/Header";
 import Footer from "@/components/layout/Footer";
 import AdminTopHeader from "@/components/layout/AdminTopHeader";
 import AdminFooter from "@/components/layout/AdminFooter";
+import CompareBar from "@/components/product/CompareBar";
 
 export default function LayoutSwitcher({ children }) {
   const pathname = usePathname();
@@ -14,7 +15,7 @@ export default function LayoutSwitcher({ children }) {
   // login/register use a full-bleed split-screen layout with no site
   // chrome (matches the auth page reference design) — same pattern as the
   // admin check above, just for a different pair of routes
-  const isAuth = pathname === "/login" || pathname === "/register";
+  const isAuth = ["/login", "/register", "/forgot-password", "/reset-password"].includes(pathname);
 
   useEffect(() => {
     if (isAdmin) document.body.classList.add("admin-theme");
@@ -40,6 +41,7 @@ export default function LayoutSwitcher({ children }) {
     <>
       <Header />
       <main className="min-h-screen">{children}</main>
+      <CompareBar />
       <Footer />
     </>
   );

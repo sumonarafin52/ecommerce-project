@@ -7,6 +7,7 @@ import connectDB from "@/lib/db";
 import ShippingMethod from "@/models/ShippingMethod";
 import { hasPermission } from "@/lib/rbac";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
+import { serverError } from "@/lib/apiError";
 
 // GET: public — checkout needs this to show available methods/rates
 export async function GET(request) {
@@ -22,7 +23,7 @@ export async function GET(request) {
       .lean();
     return NextResponse.json({ success: true, data: methods });
   } catch (error) {
-    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    return serverError(error, "api/shipping/methods");
   }
 }
 
@@ -55,6 +56,6 @@ export async function POST(request) {
     });
     return NextResponse.json({ success: true, data: method }, { status: 201 });
   } catch (error) {
-    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    return serverError(error, "api/shipping/methods");
   }
 }

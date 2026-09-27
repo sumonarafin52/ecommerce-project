@@ -12,7 +12,11 @@ import { formatCurrency, getEffectivePrice } from "@/lib/utils";
 const translations = {
   en: {
     deliverTo: "Delivering to",
-    updateLocation: "Update Location",
+    updateLocation: "Choose location",
+    deliveryArea: "Delivery area",
+    chooseArea: "Where should we deliver?",
+    chooseAreaHint: "We'll fill this in for you at checkout.",
+    save: "Save",
     searchPlaceholder: "Search for any product or brand",
     signIn: "Sign In",
     account: "Account",
@@ -31,11 +35,16 @@ const translations = {
     orders: "Your Orders",
     admin: "Admin Panel",
     helpEmail: "Email Support",
+    contactUs: "Contact Us",
     helpCall: "Call Us",
   },
   bn: {
     deliverTo: "ডেলিভারি",
-    updateLocation: "লোকেশন পরিবর্তন",
+    updateLocation: "লোকেশন বেছে নিন",
+    deliveryArea: "ডেলিভারি এলাকা",
+    chooseArea: "কোথায় ডেলিভারি দেব?",
+    chooseAreaHint: "চেকআউটে এটি আপনাআপনি বসে যাবে।",
+    save: "সেভ",
     searchPlaceholder: "পণ্য বা ব্র্যান্ড খুঁজুন",
     signIn: "সাইন ইন",
     account: "অ্যাকাউন্ট",
@@ -54,6 +63,7 @@ const translations = {
     orders: "আপনার অর্ডার",
     admin: "অ্যাডমিন প্যানেল",
     helpEmail: "ইমেইল সাপোর্ট",
+    contactUs: "যোগাযোগ করুন",
     helpCall: "কল করুন",
   },
 };
@@ -78,7 +88,7 @@ export default function Header() {
   // store branding — falls back to the original hardcoded name/no-logo look
   // until Settings → General is configured, so nothing changes visually
   // for stores that haven't set a custom name/logo yet
-  const [brand, setBrand] = useState({ storeName: "SumonMart", storeLogo: "", headerAnnouncement: "" });
+  const [brand, setBrand] = useState({ storeName: "SumonMart", storeLogo: "", headerAnnouncement: "", storeEmail: "", storePhone: "" });
 
   const t = translations[lang];
 
@@ -87,10 +97,10 @@ export default function Header() {
     try {
       setRecentSearches(JSON.parse(localStorage.getItem("sm_searches") || "[]"));
     } catch {}
-    fetch("https://ipwho.is/")
-      .then((r) => r.json())
-      .then((d) => setCountry(d.country || "Bangladesh"))
-      .catch(() => setCountry("Bangladesh"));
+    // Previously this sent every visitor's IP to a third-party geolocation
+    // service on every page load — and still guessed wrong (it announced
+    // "Delivering to United States"). The customer now picks their own area.
+    setCountry(localStorage.getItem("sm_delivery_city") || "");
     fetch("/api/categories")
       .then((r) => r.json())
       .then((res) => {
@@ -105,6 +115,8 @@ export default function Header() {
             storeName: res.data.general.storeName,
             storeLogo: res.data.general.storeLogo || "",
             headerAnnouncement: res.data.general.headerAnnouncement || "",
+            storeEmail: res.data.general.storeEmail || "",
+            storePhone: res.data.general.storePhone || "",
           });
         }
       })
@@ -285,8 +297,8 @@ export default function Header() {
 
       {/* Row 1 — logo, search, delivery, language, cart, account */}
       <header className="bg-cream-white border-b border-line">
-        <div className="max-w-7xl mx-auto px-4 relative z-50 flex items-center gap-5 h-[78px]">
-          <Link href="/" className="flex items-center gap-2 font-display font-bold text-2xl text-indigo-900 shrink-0">
+        <div className="max-w-7xl mx-auto px-4 relative z-50 flex items-center gap-3 sm:gap-5 h-[68px] sm:h-[78px]">
+          <Link href="/" className="flex items-center gap-2 font-display font-bold text-xl sm:text-2xl text-indigo-900 shrink-0 min-w-0 mr-auto md:mr-0">
             {brand.storeLogo ? (
               <img src={brand.storeLogo} alt={brand.storeName} className="h-9 w-auto object-contain" />
             ) : (
@@ -304,18 +316,67 @@ export default function Header() {
             {showDropdown && searchDropdown}
           </div>
 
-          <button className="hidden lg:flex items-center gap-2 text-ink-soft shrink-0">
-            <svg className="w-[18px] h-[18px] text-indigo-900" fill="currentColor" viewBox="0 0 20 20">
-              <path fillRule="evenodd" d="M5.05 4.05a7 7 0 019.9 0c2.73 2.74 2.73 7.17 0 9.9L10 18.9l-4.95-4.95c-2.73-2.73-2.73-7.16 0-9.9zM10 12a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" />
-            </svg>
-            <span className="text-left leading-tight">
-              <span className="block text-[11px]">{t.deliverTo} {country || "Bangladesh"}</span>
-              <span className="block text-[13px] font-bold text-ink">{t.updateLocation}</span>
-            </span>
-          </button>
+          <div className="relative hidden lg:block shrink-0">
+            <button
+              onClick={() => toggle("location")}
+              className="flex items-center gap-2 text-ink-soft hover:text-indigo-900 transition-colors"
+              aria-haspopup="dialog"
+              aria-expanded={openMenu === "location"}
+            >
+              <svg className="w-[18px] h-[18px] text-indigo-900" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M5.05 4.05a7 7 0 019.9 0c2.73 2.74 2.73 7.17 0 9.9L10 18.9l-4.95-4.95c-2.73-2.73-2.73-7.16 0-9.9zM10 12a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" />
+              </svg>
+              <span className="text-left leading-tight">
+                <span className="block text-[11px]">{country ? t.deliverTo : t.deliveryArea}</span>
+                <span className="block text-[13px] font-bold text-ink max-w-[130px] truncate">{country || t.updateLocation}</span>
+              </span>
+            </button>
+            {openMenu === "location" && (
+              <div className={panelCls + " w-72 p-4"}>
+                <p className="text-sm font-bold text-ink mb-1">{t.chooseArea}</p>
+                <p className="text-[12px] text-ink-muted mb-3">{t.chooseAreaHint}</p>
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    const v = e.currentTarget.city.value.trim().slice(0, 60);
+                    if (!v) return;
+                    localStorage.setItem("sm_delivery_city", v);
+                    setCountry(v);
+                    setOpenMenu(null);
+                  }}
+                  className="flex gap-2"
+                >
+                  <input
+                    name="city"
+                    defaultValue={country}
+                    placeholder="e.g. Savar"
+                    className="flex-1 min-w-0 border-[1.5px] border-line rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-900"
+                  />
+                  <button className="bg-indigo-900 hover:bg-indigo-950 text-white text-sm font-bold px-3 rounded-lg">{t.save}</button>
+                </form>
+                <div className="flex flex-wrap gap-1.5 mt-3">
+                  {["Dhaka", "Chattogram", "Sylhet", "Khulna", "Rajshahi", "Barishal", "Rangpur", "Mymensingh"].map((city) => (
+                    <button
+                      key={city}
+                      onClick={() => {
+                        localStorage.setItem("sm_delivery_city", city);
+                        setCountry(city);
+                        setOpenMenu(null);
+                      }}
+                      className={`text-[12px] font-semibold rounded-full px-2.5 py-1 border transition-colors ${
+                        country === city ? "bg-indigo-900 text-white border-indigo-900" : "border-line text-ink-soft hover:border-indigo-700"
+                      }`}
+                    >
+                      {city}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
 
           <div className="relative shrink-0">
-            <button onClick={() => toggle("lang")} className="flex items-center gap-1.5 text-sm font-bold text-ink border border-line rounded-lg px-3 py-2 hover:border-indigo-700">
+            <button onClick={() => toggle("lang")} className="flex items-center gap-1 sm:gap-1.5 text-sm font-bold text-ink border border-line rounded-lg px-2 sm:px-3 py-1.5 sm:py-2 hover:border-indigo-700">
               {lang === "en" ? "EN" : "বাং"}
               <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
@@ -543,8 +604,11 @@ export default function Header() {
               </button>
               {openMenu === "service" && (
                 <div className={panelCls + " right-0 left-auto"}>
-                  <a href="mailto:support@sumonmart.com" className={itemCls}>{t.helpEmail}</a>
-                  <a href="tel:+8801700000000" className={itemCls}>{t.helpCall}</a>
+                  <Link href="/contact" className={itemCls} onClick={() => setOpenMenu(null)}>{t.contactUs}</Link>
+                  {brand.storeEmail && <a href={`mailto:${brand.storeEmail}`} className={itemCls}>{t.helpEmail}</a>}
+                  {brand.storePhone && (
+                    <a href={`tel:${brand.storePhone.replace(/[^\d+]/g, "")}`} className={itemCls}>{t.helpCall}</a>
+                  )}
                   <Link href="/track" className={itemCls} onClick={() => setOpenMenu(null)}>{t.orderStatus}</Link>
                 </div>
               )}

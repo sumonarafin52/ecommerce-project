@@ -5,6 +5,7 @@ import connectDB from "@/lib/db";
 import DigitalProduct from "@/models/DigitalProduct";
 import { hasPermission } from "@/lib/rbac";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
+import { serverError } from "@/lib/apiError";
 
 // PUT: admin — update / active toggle
 export async function PUT(request, { params }) {
@@ -34,7 +35,7 @@ export async function PUT(request, { params }) {
     }
     return NextResponse.json({ success: true, data: item });
   } catch (error) {
-    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    return serverError(error, "api/digital-products/[id]");
   }
 }
 
@@ -56,6 +57,6 @@ export async function DELETE(request, { params }) {
     }
     return NextResponse.json({ success: true, message: "Deleted" });
   } catch (error) {
-    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    return serverError(error, "api/digital-products/[id]");
   }
 }
