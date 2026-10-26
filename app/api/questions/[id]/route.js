@@ -8,6 +8,7 @@ import ProductQuestion from "@/models/ProductQuestion";
 import { hasPermission } from "@/lib/rbac";
 import { notify } from "@/lib/notify";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
+import { productPath } from "@/lib/slug";
 
 // PUT { answer } → publish with answer   |   PUT { status: "hidden" } → hide
 export async function PUT(request, { params }) {
@@ -22,7 +23,7 @@ export async function PUT(request, { params }) {
     }
 
     const { answer, status } = (await request.json()) || {};
-    const q = await ProductQuestion.findById(params.id).populate("product", "name");
+    const q = await ProductQuestion.findById(params.id).populate("product", "name slug");
     if (!q) return NextResponse.json({ success: false, message: "Question not found" }, { status: 404 });
 
     if (answer !== undefined) {
@@ -41,7 +42,7 @@ export async function PUT(request, { params }) {
           type: "question",
           title: "Your question was answered",
           message: `We answered your question about ${q.product?.name || "a product"}.`,
-          link: q.product ? `/products/${q.product._id}` : "/",
+          link: q.product ? productPath(q.product) : "/",
         });
       }
     } else if (status !== undefined) {

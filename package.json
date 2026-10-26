@@ -11,7 +11,9 @@
     "test": "vitest run",
     "reconcile:stock": "node scripts/reconcile-leaked-stock.js",
     "create-admin": "node scripts/create-admin.js",
-    "preflight": "node scripts/preflight.js"
+    "preflight": "node scripts/preflight.js",
+    "backfill:slugs": "node scripts/backfill-product-slugs.js",
+    "audit:ui": "node scripts/ui-audit.mjs"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

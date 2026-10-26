@@ -9,10 +9,26 @@ import { hasPermission } from "@/lib/rbac";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { serverError } from "@/lib/apiError";
 
-// GET: public — checkout needs this to show available methods/rates
+// Same check the [id] routes use, so create, edit, delete and read can't
+// drift apart — which is how the listings ended up public while the writes
+// beside them were guarded.
+async function requirePermission() {
+  const session = await getServerSession(authOptions);
+  if (!session?.user || !(await hasPermission(session, "settings"))) return null;
+  return session;
+}
+
+
+// Staff only, for the same reason as the zones listing: every caller is an
+// admin screen, and the storefront uses /api/shipping/quote. Open, this
+// exposed the shop's rate tiers, free-shipping thresholds, COD rules and
+// any method not yet switched on.
 export async function GET(request) {
   try {
     await connectDB();
+    if (!(await requirePermission())) {
+      return NextResponse.json({ success: false, message: "No permission" }, { status: 403 });
+    }
     const { searchParams } = new URL(request.url);
     const zone = searchParams.get("zone");
     const filter = zone ? { zone } : {};
@@ -30,8 +46,7 @@ export async function GET(request) {
 export async function POST(request) {
   try {
     await connectDB();
-    const session = await getServerSession(authOptions);
-    if (!session?.user || !(await hasPermission(session, "settings"))) {
+    if (!(await requirePermission())) {
       return NextResponse.json({ success: false, message: "No permission" }, { status: 403 });
     }
     const body = await request.json();

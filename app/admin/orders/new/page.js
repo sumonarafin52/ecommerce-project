@@ -8,11 +8,12 @@ import { useSession } from "next-auth/react";
 import toast from "react-hot-toast";
 import usePermissions from "@/lib/usePermissions";
 import { formatCurrency, getEffectivePrice } from "@/lib/utils";
+import Button from "@/components/admin/ui/Button";
+import PermissionGate from "@/components/admin/ui/PermissionGate";
+import ErrorState from "@/components/admin/ui/ErrorState";
 
-const selectCls =
-  "bg-primary border border-white/15 rounded-md px-3 py-2 text-sm text-white outline-none focus:border-accent transition-colors";
-const inputCls =
-  "bg-primary border border-white/15 rounded-md px-3 py-2 text-sm text-white placeholder-zinc-500 outline-none focus:border-accent transition-colors";
+const selectCls = "admin-input";
+const inputCls = "admin-input";
 const card = "bg-primary-light border border-white/10 rounded-xl p-5";
 
 const emptyForm = {
@@ -29,11 +30,12 @@ const emptyForm = {
 export default function CreateOrderPage() {
   const router = useRouter();
   const { data: session, status } = useSession();
-  const { can, loading: permLoading } = usePermissions();
+  const { can, loading: permLoading, failed: permFailed, refresh: refreshPermissions } = usePermissions();
 
   const [users, setUsers] = useState([]);
   const [products, setProducts] = useState([]);
   const [loadingData, setLoadingData] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [form, setForm] = useState(emptyForm);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState("");
@@ -44,14 +46,22 @@ export default function CreateOrderPage() {
 
   useEffect(() => {
     if (status !== "authenticated" || !canCreate) return;
+    setLoadError(false);
     Promise.all([
       fetch("/api/users").then((r) => r.json()),
       fetch("/api/products?limit=100").then((r) => r.json()),
     ])
       .then(([uRes, pRes]) => {
+        // Both lists ARE the form: with neither a customer nor a product to
+        // pick, the page is a set of empty dropdowns above a button that
+        // cannot succeed. Better to say so than to let someone fill in an
+        // address and find out at the end.
         if (uRes.success) setUsers(uRes.data);
+        else setLoadError(true);
         if (pRes.success) setProducts(pRes.data.products || []);
+        else setLoadError(true);
       })
+      .catch(() => setLoadError(true))
       .finally(() => setLoadingData(false));
   }, [status, canCreate]);
 
@@ -102,14 +112,23 @@ export default function CreateOrderPage() {
     );
   }
 
-  if (!session || !canCreate) {
+  if (!session || permLoading || permFailed || !canCreate) {
     return (
-      <div className="bg-primary min-h-screen flex flex-col items-center justify-center gap-4 text-center px-4">
-        <p className="text-xl font-bold text-white">Access required</p>
-        <Link href="/admin/orders" className="bg-accent hover:bg-accent/80 text-primary font-bold px-6 py-3 rounded-md transition-colors">
-          Back to Orders
-        </Link>
-      </div>
+      <PermissionGate
+        perm="orders_update"
+        what="creating orders"
+        signedIn={!!session}
+        state={{ loading: permLoading, failed: permFailed, can, refresh: refreshPermissions }}
+      />
+    );
+  }
+
+  if (loadError) {
+    return (
+      <ErrorState
+        what="the customer and product lists"
+        onRetry={() => { setLoadError(false); setLoadingData(true); router.refresh(); }}
+      />
     );
   }
 
@@ -186,7 +205,7 @@ export default function CreateOrderPage() {
                   <button
                     type="button"
                     onClick={() => setForm((f) => ({ ...f, items: [...f.items, { product: "", quantity: 1 }] }))}
-                    className="text-xs text-accent hover:underline font-bold"
+                    variant="link"
                   >
                     + Add another product
                   </button>
@@ -210,7 +229,7 @@ export default function CreateOrderPage() {
                           phone: selectedCustomer.phone || f.phone,
                         }))
                       }
-                      className="text-xs text-accent hover:underline font-bold text-left"
+                      variant="link" className="text-left"
                     >
                       Use {selectedCustomer.name}&apos;s saved name/phone
                     </button>
@@ -267,9 +286,9 @@ export default function CreateOrderPage() {
                   <span className="font-bold text-accent">{formatCurrency(total)}</span>
                 </div>
                 <p className="text-[11px] text-zinc-500 mt-2">Shipping cost isn&apos;t included here — add it from the Order Details page after creating, if needed.</p>
-                <button type="submit" disabled={creating} className="w-full mt-4 bg-accent hover:bg-accent/80 text-primary font-bold py-3 rounded-md transition-colors disabled:opacity-50">
+                <Button full className="mt-4" type="submit" disabled={creating}>
                   {creating ? "Creating..." : "Create Order"}
-                </button>
+                </Button>
               </div>
             </div>
           </form>

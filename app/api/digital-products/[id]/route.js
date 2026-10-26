@@ -5,6 +5,7 @@ import connectDB from "@/lib/db";
 import DigitalProduct from "@/models/DigitalProduct";
 import { hasPermission } from "@/lib/rbac";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
+import { buildDigitalProductFields } from "@/lib/digitalProductInput";
 import { serverError } from "@/lib/apiError";
 
 // PUT: admin — update / active toggle
@@ -19,20 +20,30 @@ export async function PUT(request, { params }) {
       return NextResponse.json({ success: false, message: "No permission" }, { status: 403 });
     }
 
-    const body = await request.json();
-    const update = {};
-    if (body.title !== undefined) update.title = body.title.trim();
-    if (body.description !== undefined) update.description = body.description || "";
-    if (body.fileUrl !== undefined) update.fileUrl = body.fileUrl;
-    if (body.fileName !== undefined) update.fileName = body.fileName || "";
-    if (body.fileSize !== undefined) update.fileSize = Number(body.fileSize) || 0;
-    if (body.fileType !== undefined) update.fileType = body.fileType || "";
-    if (body.active !== undefined) update.active = Boolean(body.active);
+    const body = await request.json().catch(() => ({}));
+    // partial: only keys actually sent are written, so a toggle request
+    // ({ active: false }) can't blank the licence terms or the file list.
+    const { fields, error } = buildDigitalProductFields(body, { partial: true });
+    if (error) {
+      return NextResponse.json({ success: false, message: error }, { status: 400 });
+    }
+    if (!Object.keys(fields).length) {
+      return NextResponse.json({ success: false, message: "Nothing to update" }, { status: 400 });
+    }
 
-    const item = await DigitalProduct.findByIdAndUpdate(params.id, update, { new: true });
+    // runValidators so the "at least one file" rule and the enum on
+    // licenseMode are enforced on updates too, not only on create.
+    const item = await DigitalProduct.findByIdAndUpdate(params.id, fields, {
+      new: true,
+      runValidators: true,
+    });
     if (!item) {
       return NextResponse.json({ success: false, message: "Not found" }, { status: 404 });
     }
+
+    // Changing the policy must not retroactively change what somebody
+    // already bought — existing DownloadGrants keep the limit and expiry
+    // frozen at their purchase time. Only new purchases pick this up.
     return NextResponse.json({ success: true, data: item });
   } catch (error) {
     return serverError(error, "api/digital-products/[id]");

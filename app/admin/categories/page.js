@@ -5,18 +5,23 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
 import usePermissions from "@/lib/usePermissions";
+import Button from "@/components/admin/ui/Button";
+import PermissionGate from "@/components/admin/ui/PermissionGate";
+import ErrorState from "@/components/admin/ui/ErrorState";
 
-const inputCls =
-  "w-full bg-white/5 border border-white/15 rounded-lg px-3.5 py-2.5 text-sm text-white placeholder-zinc-500 outline-none focus:border-accent focus:bg-white/[0.07] transition-all";
+const inputCls = "admin-input w-full";
 const labelCls = "block text-[11px] font-bold text-zinc-300 mb-1.5 uppercase tracking-wider";
 
 const emptyForm = { name: "", subcategories: [], image: "" };
 
 export default function AdminCategoriesPage() {
   const { data: session, status } = useSession();
-  const { can, loading: permLoading } = usePermissions();
+  const { can, loading: permLoading, failed: permFailed, refresh: refreshPermissions } = usePermissions();
+
+  const [loadError, setLoadError] = useState(false);
 
   const [categories, setCategories] = useState([]);
+  const [usedNames, setUsedNames] = useState([]);
   const [loading, setLoading] = useState(true);
   const [form, setForm] = useState(emptyForm);
   const [subInput, setSubInput] = useState("");
@@ -29,11 +34,30 @@ export default function AdminCategoriesPage() {
 
   const fileRef = useRef(null);
 
-  const load = () => {
-    fetch("/api/categories")
+  // categories actually used by public products (some may never have been
+  // created here — the storefront shows those too, which made an empty admin
+  // list look wrong)
+  const loadUsed = () => {
+    setLoadError(false);
+    fetch("/api/categories?scope=storefront", { cache: "no-store" })
       .then((r) => r.json())
-      .then((res) => { if (res.success) setCategories(res.data); })
-      .catch(() => {})
+      .then((res) => {
+        if (res.success) setUsedNames(res.data.filter((x) => x.derived).map((x) => x.name));
+        else setLoadError(true);
+      })
+      .catch(() => setLoadError(true));
+  };
+
+  const load = () => {
+    loadUsed();
+    setLoadError(false);
+    fetch("/api/categories", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((res) => {
+        if (res.success) setCategories(res.data);
+        else setLoadError(true);
+      })
+      .catch(() => setLoadError(true))
       .finally(() => setLoading(false));
   };
 
@@ -59,6 +83,23 @@ export default function AdminCategoriesPage() {
     const url = res.url || res.secure_url || res.data?.url || res.data?.secure_url;
     if (url) setter((f) => ({ ...f, image: url }));
     else setError(res.message || "Image upload failed");
+  };
+
+  // add a product-derived category as a real record, keeping its name exactly
+  const quickAdd = async (name) => {
+    setSaving(true);
+    try {
+      const res = await fetch("/api/categories", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, subcategories: [] }),
+      }).then((r) => r.json());
+      if (res.success) load();
+      else setError(res.message);
+    } catch {
+      setError("Failed to add category");
+    }
+    setSaving(false);
   };
 
   const create = async (e) => {
@@ -117,13 +158,19 @@ export default function AdminCategoriesPage() {
     );
   }
 
-  if (!session || !can("products")) {
+  if (!session || permLoading || permFailed || !can("products")) {
     return (
-      <div className="bg-primary min-h-screen flex flex-col items-center justify-center gap-4 text-center px-4">
-        <p className="text-xl font-bold text-white">Access denied</p>
-        <Link href="/" className="bg-accent hover:bg-accent/80 text-primary font-bold px-6 py-3 rounded-md transition-colors">Back to home</Link>
-      </div>
+      <PermissionGate
+        perm="products"
+        what="products"
+        signedIn={!!session}
+        state={{ loading: permLoading, failed: permFailed, can, refresh: refreshPermissions }}
+      />
     );
+  }
+
+  if (loadError) {
+    return <ErrorState what="categories" onRetry={() => { setLoadError(false); load(); }} />;
   }
 
   return (
@@ -134,12 +181,12 @@ export default function AdminCategoriesPage() {
             Categories
             <span className="bg-accent/15 text-accent text-xs font-bold px-2.5 py-1 rounded-full">{categories.length}</span>
           </h1>
-          <p className="text-xs text-zinc-500 mt-1">Category + subcategory gulo product form er dropdown e dekhabe</p>
+          <p className="text-xs text-zinc-500 mt-1">Organise products into categories and subcategories. They appear in the product form and across the store.</p>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-[380px_1fr] gap-6 items-start">
           {/* ===== CREATE CARD ===== */}
-          <form onSubmit={create} className="bg-gradient-to-br from-accent/10 via-primary-light to-primary-light border border-white/10 rounded-2xl p-6 space-y-4 lg:sticky lg:top-4">
+          <form onSubmit={create} className="admin-card rounded-2xl p-6 space-y-4 lg:sticky lg:top-4">
             <h2 className="text-base font-extrabold text-white flex items-center gap-2.5">
               <span className="w-8 h-8 rounded-lg bg-accent flex items-center justify-center shadow-lg">
                 <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
@@ -166,7 +213,7 @@ export default function AdminCategoriesPage() {
                   onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addSub(form, subInput, setForm); setSubInput(""); } }}
                   placeholder="Type & press Enter"
                 />
-                <button type="button" onClick={() => { addSub(form, subInput, setForm); setSubInput(""); }} className="bg-accent hover:bg-accent/80 text-primary text-xs font-extrabold px-4 rounded-lg transition-colors">+</button>
+                <Button size="sm" type="button" onClick={() => { addSub(form, subInput, setForm); setSubInput(""); }}>+</Button>
               </div>
               {form.subcategories.length > 0 && (
                 <div className="flex flex-wrap gap-1.5 mt-2">
@@ -196,18 +243,42 @@ export default function AdminCategoriesPage() {
               </div>
             </div>
 
-            <button type="submit" disabled={saving} className="w-full bg-gradient-to-r from-accent to-orange-500 hover:from-accent/90 hover:to-orange-500/90 text-primary font-extrabold py-3 rounded-lg transition-all disabled:opacity-50 shadow-glow">
+            <Button type="submit" full disabled={saving}>
               {saving ? "Creating..." : "✨ Create Category"}
-            </button>
+            </Button>
           </form>
 
           {/* ===== LIST ===== */}
           <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-4">
-            {categories.length === 0 && (
-              <div className="col-span-full text-center py-14 text-zinc-400 border border-dashed border-white/10 rounded-xl">No categories yet — create your first one!</div>
+            {usedNames.length > 0 && (
+              <div className="col-span-full admin-card rounded-xl p-4">
+                <p className="text-[13px] font-semibold text-[#303030]">
+                  {categories.length === 0 ? "Your products already use these categories" : "Used by products, but not added here"}
+                </p>
+                <p className="text-[12px] admin-text-muted mt-0.5">
+                  They already show on your store. Add one here to give it an image and control its order.
+                </p>
+                <div className="flex flex-wrap gap-2 mt-3">
+                  {usedNames.map((n) => (
+                    <button
+                      key={n}
+                      onClick={() => quickAdd(n)}
+                      disabled={saving}
+                      className="text-[12.5px] font-semibold border border-[#CCCCCC] hover:border-accent hover:text-accent rounded-lg px-3 py-1.5 transition-colors disabled:opacity-50"
+                    >
+                      + {n}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            {categories.length === 0 && usedNames.length === 0 && (
+              <div className="col-span-full text-center py-14 admin-text-muted border border-dashed border-[#CCCCCC] rounded-xl">
+                No categories yet — create your first one.
+              </div>
             )}
             {categories.map((c) => (
-              <div key={c._id} className="bg-primary-light border border-white/10 hover:border-accent/60 rounded-2xl p-5 space-y-3 transition-colors">
+              <div key={c._id} className="admin-card rounded-xl p-5 space-y-3">
                 <div className="flex items-center gap-3">
                   <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-accent/20 to-orange-500/20 border border-white/10 overflow-hidden flex items-center justify-center shrink-0">
                     {c.image ? <img src={c.image} alt={c.name} className="w-full h-full object-contain" /> : <span className="text-accent font-extrabold">{c.name.charAt(0).toUpperCase()}</span>}
@@ -260,7 +331,7 @@ export default function AdminCategoriesPage() {
                   onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addSub(edit, editSubInput, setEdit); setEditSubInput(""); } }}
                   placeholder="Type & press Enter"
                 />
-                <button type="button" onClick={() => { addSub(edit, editSubInput, setEdit); setEditSubInput(""); }} className="bg-accent hover:bg-accent/80 text-primary text-xs font-extrabold px-4 rounded-lg transition-colors">+</button>
+                <Button size="sm" type="button" onClick={() => { addSub(edit, editSubInput, setEdit); setEditSubInput(""); }}>+</Button>
               </div>
               {edit.subcategories.length > 0 && (
                 <div className="flex flex-wrap gap-1.5 mt-2">
@@ -274,9 +345,9 @@ export default function AdminCategoriesPage() {
               )}
             </div>
 
-            <button type="submit" disabled={editSaving} className="w-full bg-accent hover:bg-accent/80 text-primary font-bold py-3 rounded-lg transition-colors disabled:opacity-50">
+            <Button full type="submit" disabled={editSaving}>
               {editSaving ? "Saving..." : "Save Changes"}
-            </button>
+            </Button>
           </form>
         </div>
       )}

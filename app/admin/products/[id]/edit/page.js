@@ -7,11 +7,13 @@ import Link from "next/link";
 import { useSession } from "next-auth/react";
 import usePermissions from "@/lib/usePermissions";
 import ProductForm from "@/components/admin/ProductForm";
+import Button from "@/components/admin/ui/Button";
+import PermissionGate from "@/components/admin/ui/PermissionGate";
 
 export default function EditProductPage() {
   const params = useParams();
   const { data: session, status } = useSession();
-  const { can, loading: permLoading } = usePermissions();
+  const { can, loading: permLoading, failed: permFailed, refresh: refreshPermissions } = usePermissions();
   const [product, setProduct] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -33,14 +35,14 @@ export default function EditProductPage() {
     );
   }
 
-  if (!session || !can("products")) {
+  if (!session || permLoading || permFailed || !can("products")) {
     return (
-      <div className="bg-primary min-h-screen flex flex-col items-center justify-center gap-4 text-center px-4">
-        <p className="text-xl font-bold text-white">Access denied</p>
-        <Link href="/" className="bg-accent hover:bg-accent/80 text-primary font-bold px-6 py-3 rounded-md transition-colors">
-          Back to home
-        </Link>
-      </div>
+      <PermissionGate
+        perm="products"
+        what="products"
+        signedIn={!!session}
+        state={{ loading: permLoading, failed: permFailed, can, refresh: refreshPermissions }}
+      />
     );
   }
 

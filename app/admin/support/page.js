@@ -8,12 +8,16 @@ import Badge from "@/components/admin/ui/Badge";
 import EmptyState from "@/components/admin/ui/EmptyState";
 import usePermissions from "@/lib/usePermissions";
 import { formatDateTime } from "@/lib/utils";
+import Button from "@/components/admin/ui/Button";
+import PermissionGate from "@/components/admin/ui/PermissionGate";
+import ErrorState from "@/components/admin/ui/ErrorState";
 
 const TOPIC = { order: "Order", payment: "Payment", product: "Product", account: "Account", other: "Other" };
 const TONE = { open: "warning", answered: "info", closed: "neutral" };
 
 export default function AdminSupportPage() {
-  const { can, loading: permLoading } = usePermissions();
+  const { can, loading: permLoading, failed: permFailed, refresh: refreshPermissions } = usePermissions();
+  const [loadError, setLoadError] = useState(false);
   const [tickets, setTickets] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("open");
@@ -25,10 +29,11 @@ export default function AdminSupportPage() {
     setLoading(true);
     const qs = new URLSearchParams({ scope: "all" });
     if (filter !== "all") qs.set("status", filter);
+    setLoadError(false);
     fetch(`/api/support?${qs}`, { cache: "no-store" })
       .then((r) => r.json())
-      .then((res) => res.success && setTickets(res.data))
-      .catch(() => {})
+      .then((res) => (res.success ? setTickets(res.data) : setLoadError(true)))
+      .catch(() => setLoadError(true))
       .finally(() => setLoading(false));
   };
 
@@ -54,18 +59,22 @@ export default function AdminSupportPage() {
     }
     setBusy(false);
   };
-
-  if (permLoading) return null;
-  if (!can("customers")) {
+  if (permLoading || permFailed || !can("customers")) {
     return (
-      <div className="max-w-5xl mx-auto px-4 lg:px-8 py-6">
-        <p className="admin-text-secondary text-sm">You don&apos;t have permission to view support messages.</p>
-      </div>
+      <PermissionGate
+        perm="customers"
+        what="customer accounts"
+        state={{ loading: permLoading, failed: permFailed, can, refresh: refreshPermissions }}
+      />
     );
   }
 
+  if (loadError) {
+    return <ErrorState what="support messages" onRetry={() => { setLoadError(false); load(); }} />;
+  }
+
   return (
-    <div className="max-w-5xl mx-auto px-4 lg:px-8 py-6">
+    <div className="max-w-[1700px] mx-auto px-4 lg:px-8 py-6">
       <PageHeader title="Support" description="Messages from the Contact page. Replies are emailed to the customer." />
 
       <div className="flex gap-1 overflow-x-auto no-scrollbar border-b admin-border mb-5">
@@ -87,7 +96,7 @@ export default function AdminSupportPage() {
           {[0, 1, 2].map((i) => <div key={i} className="admin-card rounded-xl h-20 animate-pulse" />)}
         </div>
       ) : tickets.length === 0 ? (
-        <EmptyState icon="💬" title={filter === "open" ? "No open messages" : "Nothing here"} description="New Contact-page messages show up here." />
+        <EmptyState icon="chat" title={filter === "open" ? "No open messages" : "Nothing here"} description="New Contact-page messages show up here." />
       ) : (
         <div className="space-y-3">
           {tickets.map((t) => {
@@ -136,7 +145,7 @@ export default function AdminSupportPage() {
                           value={reply}
                           onChange={(e) => setReply(e.target.value)}
                           placeholder={`Reply to ${t.name} — this is emailed to ${t.email}`}
-                          className="admin-input w-full rounded-lg px-3 py-2 text-sm"
+                          className="admin-input w-full"
                         />
                         <div className="flex flex-wrap gap-2 justify-end">
                           <button
@@ -157,12 +166,9 @@ export default function AdminSupportPage() {
                       </>
                     )}
                     {t.status === "closed" && (
-                      <button
-                        onClick={() => update(t, { status: "open" }, "Ticket reopened")}
-                        className="text-xs font-bold text-accent hover:underline"
-                      >
+                      <Button variant="link" onClick={() => update(t, { status: "open" }, "Ticket reopened")}>
                         Reopen
-                      </button>
+                      </Button>
                     )}
                   </div>
                 )}

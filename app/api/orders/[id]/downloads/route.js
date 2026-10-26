@@ -1,106 +1,86 @@
 // app/api/orders/[id]/downloads/route.js
 //
-// Delivers download links for any digital products in a paid order. This
-// closes a gap where the product page told customers "you'll get a
-// download link after payment" but nothing anywhere actually served one —
-// DigitalProduct existed in the admin panel and could be linked to a
-// Product, but no customer-facing route ever exposed fileUrl.
+// Digital downloads for one order. Kept as its own route because the order
+// confirmation page and a guest's order page both need "what did I just
+// buy that I can download" without loading the whole account.
+//
+// Two bugs this route used to have, beyond exposing the storage URL:
+//
+//   * `order.user.toString()` threw on guest orders — `user` became optional
+//     when guest checkout landed, so a guest order containing a digital
+//     product produced a 500 here, and a guest could never reach their file
+//     at all. Guests now authenticate with the order's access token, the
+//     same mechanism the order page itself uses.
+//   * the POST handler returned the raw fileUrl and incremented a global
+//     counter, so the per-customer limit was unenforceable.
+//
+// Downloading is now POST /api/downloads/[grantId]; this route only lists
+// what exists.
+export const dynamic = "force-dynamic";
+
+import crypto from "crypto";
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import connectDB from "@/lib/db";
 import Order from "@/models/Order";
-import Product from "@/models/Product";
 import DigitalProduct from "@/models/DigitalProduct";
+import DownloadGrant from "@/models/DownloadGrant";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
+import { createGrantsForOrder, grantToPublic, isObjectId } from "@/lib/digitalDelivery";
+import { hasPermission } from "@/lib/rbac";
+import { serverError } from "@/lib/apiError";
+
+function timingSafeEqualStr(a, b) {
+  const bufA = Buffer.from(String(a || ""));
+  const bufB = Buffer.from(String(b || ""));
+  if (bufA.length !== bufB.length || bufA.length === 0) return false;
+  return crypto.timingSafeEqual(bufA, bufB);
+}
 
 export async function GET(request, { params }) {
   try {
     await connectDB();
     const session = await getServerSession(authOptions);
-    if (!session?.user) {
+    const guestToken = new URL(request.url).searchParams.get("t") || "";
+
+    if (!isObjectId(params.id)) {
+      return NextResponse.json({ success: false, message: "Not found" }, { status: 404 });
+    }
+    if (!session?.user && !guestToken) {
       return NextResponse.json({ success: false, message: "Login required" }, { status: 401 });
     }
 
-    const order = await Order.findById(params.id);
+    const order = await Order.findById(params.id).select("+guestAccessToken").lean();
     if (!order) {
       return NextResponse.json({ success: false, message: "Order not found" }, { status: 404 });
     }
-    if (order.user.toString() !== session.user.id) {
+
+    // `order.user` is null for guest orders — checked before dereferencing.
+    const isOwner = !!session?.user && !!order.user && String(order.user) === String(session.user.id);
+    const isGuestHolder =
+      !!guestToken && !!order.guestAccessToken && timingSafeEqualStr(guestToken, order.guestAccessToken);
+    const isStaff = !!session?.user && (await hasPermission(session, "orders"));
+
+    if (!isOwner && !isGuestHolder && !isStaff) {
       return NextResponse.json({ success: false, message: "Not your order" }, { status: 403 });
     }
-    // Digital goods deliver on payment, not on physical fulfillment —
-    // orderStatus (shipped/delivered) doesn't apply to them the same way.
+
+    // Digital goods deliver on payment, not on physical fulfilment.
     if (order.paymentStatus !== "paid") {
       return NextResponse.json({ success: true, data: [] });
     }
 
-    const productIds = order.items.map((it) => it.product);
-    const products = await Product.find({ _id: { $in: productIds } })
-      .select("digitalProduct")
-      .populate("digitalProduct")
-      .lean();
+    await createGrantsForOrder(order);
+    const grants = await DownloadGrant.find({ order: order._id }).lean();
+    if (!grants.length) return NextResponse.json({ success: true, data: [] });
 
-    const downloadable = [];
-    for (const it of order.items) {
-      const product = products.find((p) => String(p._id) === String(it.product));
-      const dp = product?.digitalProduct;
-      if (dp && dp.active) {
-        downloadable.push({
-          productId: String(it.product),
-          name: it.name,
-          fileName: dp.fileName || dp.title,
-          fileUrl: dp.fileUrl,
-          fileSize: dp.fileSize,
-          fileType: dp.fileType,
-        });
-      }
-    }
+    const dpIds = [...new Set(grants.map((g) => String(g.digitalProduct)))];
+    const dps = await DigitalProduct.find({ _id: { $in: dpIds } }).lean();
+    const byId = new Map(dps.map((d) => [String(d._id), d]));
 
-    if (downloadable.length) {
-      // note: this only lists what's available — the actual download click
-      // (POST below) is what increments each DigitalProduct's counter, so
-      // a background page-load check here doesn't inflate download stats.
-    }
-
-    return NextResponse.json({ success: true, data: downloadable });
+    const data = await Promise.all(grants.map((g) => grantToPublic(g, byId.get(String(g.digitalProduct)))));
+    return NextResponse.json({ success: true, data });
   } catch (error) {
-    console.error("[orders:downloads]", error);
-    return NextResponse.json({ success: false, message: "Something went wrong" }, { status: 500 });
-  }
-}
-
-// Called right before the customer opens/downloads a specific file — this
-// is what actually increments DigitalProduct.downloads, kept separate from
-// the GET above so listing available downloads (e.g. a background check on
-// page load) doesn't itself count as a download.
-export async function POST(request, { params }) {
-  try {
-    await connectDB();
-    const session = await getServerSession(authOptions);
-    if (!session?.user) {
-      return NextResponse.json({ success: false, message: "Login required" }, { status: 401 });
-    }
-
-    const order = await Order.findById(params.id);
-    if (!order || order.user.toString() !== session.user.id || order.paymentStatus !== "paid") {
-      return NextResponse.json({ success: false, message: "Not available" }, { status: 403 });
-    }
-
-    const { productId } = await request.json();
-    const item = order.items.find((it) => String(it.product) === String(productId));
-    if (!item) {
-      return NextResponse.json({ success: false, message: "Item not found in this order" }, { status: 404 });
-    }
-
-    const product = await Product.findById(productId).select("digitalProduct").populate("digitalProduct");
-    if (!product?.digitalProduct?.active) {
-      return NextResponse.json({ success: false, message: "Not a digital item" }, { status: 400 });
-    }
-
-    await DigitalProduct.updateOne({ _id: product.digitalProduct._id }, { $inc: { downloads: 1 } });
-    return NextResponse.json({ success: true, data: { fileUrl: product.digitalProduct.fileUrl } });
-  } catch (error) {
-    console.error("[orders:downloads:record]", error);
-    return NextResponse.json({ success: false, message: "Something went wrong" }, { status: 500 });
+    return serverError(error, "api/orders/downloads");
   }
 }

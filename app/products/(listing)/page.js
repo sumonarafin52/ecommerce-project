@@ -4,15 +4,39 @@ import connectDB from "@/lib/db";
 import Product from "@/models/Product";
 import ProductGrid from "@/components/product/ProductGrid";
 import FilterLink from "@/components/product/FilterLink";
-import { searchProducts } from "@/lib/productSearch";
+import MobileFilterSheet from "@/components/product/MobileFilterSheet";
+import { searchProducts, searchFallbacks } from "@/lib/productSearch";
+import Icon from "@/components/ui/Icon";
+import { getT } from "@/lib/serverLang";
+import Rating from "@/components/product/Rating";
 
 export const dynamic = "force-dynamic";
 
+// Distinct titles per category ("Ice Cream | SumonShop") instead of every
+// listing sharing one title. Search and filtered-result pages are kept out
+// of search engines — endless near-duplicate URLs dilute a store's ranking.
+export function generateMetadata({ searchParams = {} }) {
+  const category = (searchParams.category || "").trim().slice(0, 60);
+  const search = (searchParams.search || "").trim().slice(0, 60);
+  const filtered = ["brand", "minPrice", "maxPrice", "rating", "inStock", "deals", "sort", "page"].some((k) => searchParams[k]);
+
+  if (search) {
+    return { title: `Results for "${search}"`, robots: { index: false, follow: true } };
+  }
+  const title = category ? category : "All Products";
+  return {
+    title,
+    description: category ? `Shop ${category} online — delivered across Bangladesh.` : "Browse every product in the store.",
+    alternates: { canonical: category ? `/products?category=${encodeURIComponent(category)}` : "/products" },
+    robots: filtered ? { index: false, follow: true } : { index: true, follow: true },
+  };
+}
+
 const sortOptions = [
-  { key: "new", label: "Newest" },
-  { key: "top", label: "Top Selling" },
-  { key: "price-low", label: "Price: Low to High" },
-  { key: "price-high", label: "Price: High to Low" },
+  { key: "new", labelKey: "sortNewest" },
+  { key: "top", labelKey: "sortTopSelling" },
+  { key: "price-low", labelKey: "sortPriceLow" },
+  { key: "price-high", labelKey: "sortPriceHigh" },
 ];
 
 const priceBands = [
@@ -25,6 +49,7 @@ const priceBands = [
 const PAGE_SIZE = 24;
 
 export default async function ProductsPage({ searchParams }) {
+  const t = getT();
   await connectDB();
 
   const search = (searchParams.search || "").trim();
@@ -45,7 +70,10 @@ export default async function ProductsPage({ searchParams }) {
   // at all).
   const [categoryCounts, brands, { products, total, totalPages, didYouMean }] = await Promise.all([
     Product.aggregate([{ $match: { status: "public" } }, { $group: { _id: "$category", count: { $sum: 1 } } }, { $sort: { _id: 1 } }]),
-    Product.distinct("brand", { status: "public", brand: { $ne: "" } }),
+    // $ne: "" does not exclude a product with no brand field at all —
+    // undefined is not equal to "" — so the filter list grew a blank row
+    // with an empty checkbox that filtered to nothing.
+    Product.distinct("brand", { status: "public", brand: { $nin: ["", null], $exists: true } }),
     searchProducts({
       params: {
         q: search,
@@ -64,6 +92,10 @@ export default async function ProductsPage({ searchParams }) {
     }),
   ]);
   const totalPublic = categoryCounts.reduce((sum, c) => sum + c.count, 0);
+
+  // Only when the page would otherwise be a dead end: what these words find
+  // without the filters, and which of them find anything on their own.
+  const fallbacks = total === 0 && search ? await searchFallbacks({ params: { q: search }, canManage: false }) : null;
   const sort = searchParams.sort || "new"; // local default, just for highlighting the active chip below
 
   // keep current filters while changing one param
@@ -96,12 +128,12 @@ export default async function ProductsPage({ searchParams }) {
   };
 
   const title = search
-    ? `Results for "${search}"`
+    ? t("resultsFor", { q: search })
     : category
     ? category
     : deals
-    ? "Today's Deals"
-    : "All Products";
+    ? t("todaysDeals")
+    : t("allProducts");
 
   const filterRow = (checked, label, href) => (
     <FilterLink href={href} className="flex items-center gap-2.5 text-[13.5px] text-ink-soft hover:text-indigo-900 py-1">
@@ -116,22 +148,17 @@ export default async function ProductsPage({ searchParams }) {
     </FilterLink>
   );
 
-  const hasActiveFilters = category || brand || deals || inStock || min || max || minRating;
+  // Boolean(), not a bare || chain: every one of these but `category` and
+  // `brand` is a number or a boolean, so with no filters applied the chain
+  // evaluated to the last falsy value — the number 0 — and `{0 && (...)}`
+  // renders a literal "0" in the sidebar. React only skips `false`, `null`
+  // and `undefined`.
+  const hasActiveFilters = Boolean(category || brand || deals || inStock || min || max || minRating);
 
-  return (
-    <div className="bg-cream-bg min-h-screen font-body2">
-      <div className="max-w-7xl mx-auto px-4">
-        <nav className="text-[13px] text-ink-muted py-4 flex items-center gap-2">
-          <Link href="/" className="hover:text-indigo-900">Home</Link>
-          <span>›</span>
-          <span className="text-ink">All Products</span>
-        </nav>
-
-        <div className="grid grid-cols-1 lg:grid-cols-[250px_1fr] gap-7 pb-14">
-          {/* filters sidebar */}
-          <aside className="bg-cream-white border border-line rounded-xl p-5 h-fit lg:sticky lg:top-4">
-            <h4 className="text-[13.5px] font-bold text-ink pb-2.5 border-b border-line mb-3.5">Filters</h4>
-
+  // Filter controls, defined once and rendered in two places: the desktop
+  // sidebar and the phone bottom sheet.
+  const filterContent = (
+    <>
             <div className="mb-5">
               <p className="text-[12px] font-bold uppercase tracking-wide text-ink-soft mb-2.5">Category</p>
               {filterRow(!category, `All (${totalPublic})`, buildUrl({ category: null }))}
@@ -159,9 +186,17 @@ export default async function ProductsPage({ searchParams }) {
 
             <div className="mb-5">
               <p className="text-[12px] font-bold uppercase tracking-wide text-ink-soft mb-2.5">Customer Rating</p>
-              {[4, 3].map((r) =>
-                filterRow(minRating === r, `${"★".repeat(r)} & up`, buildUrl({ rating: r }))
-              )}
+              {[4, 3].map((r) => (
+                <div key={r}>
+                  {filterRow(
+                    minRating === r,
+                    <span className="flex items-center gap-1.5">
+                      <Rating value={r} size={12} showEmpty={false} />& up
+                    </span>,
+                    buildUrl({ rating: r })
+                  )}
+                </div>
+              ))}
             </div>
 
             <div className="mb-5">
@@ -179,6 +214,84 @@ export default async function ProductsPage({ searchParams }) {
                 Clear filters
               </FilterLink>
             )}
+    </>
+  );
+  const activeFilterCount = [category, brand, deals, inStock, min || max, minRating].filter(Boolean).length;
+
+  // A shop loses the customer here, so this is never just a sentence: it
+  // says what was not found, and every route out of it is a real link —
+  // the same words without the filters, the words that DO find something,
+  // and the catalogue. The counts come from the catalogue (searchFallbacks),
+  // so nothing offered here leads to another empty page.
+  const noResults = (
+    <div className="max-w-sm mx-auto flex flex-col items-center">
+      <Icon name="search" size={28} className="text-ink-muted/60 mb-3" />
+      <p className="font-display text-base sm:text-lg font-semibold text-ink">
+        {search ? t("noResultsFor", { q: search }) : t("noResultsFilters")}
+      </p>
+      {/* spelling advice only makes sense to someone who typed something */}
+      {search && <p className="text-[13.5px] text-ink-muted mt-1.5">{t("checkSpelling")}</p>}
+
+      {fallbacks?.terms?.length > 0 && (
+        <div className="mt-5 w-full">
+          <p className="text-[12px] font-bold uppercase tracking-wide text-ink-soft mb-2">{t("tryInstead")}</p>
+          <div className="flex flex-wrap justify-center gap-2">
+            {fallbacks.terms.map(({ term, count }) => (
+              <FilterLink
+                key={term}
+                href={`/products?search=${encodeURIComponent(term)}`}
+                className="px-3 py-1.5 rounded-full text-xs font-bold border border-line text-ink-soft hover:border-indigo-700 hover:text-indigo-900 transition-colors"
+              >
+                {term} <span className="text-ink-muted font-normal">({count})</span>
+              </FilterLink>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="mt-5 flex flex-wrap justify-center gap-2">
+        {hasActiveFilters && fallbacks?.withoutFilters > 0 && (
+          <FilterLink
+            href={clearFiltersUrl()}
+            className="px-4 py-2 rounded-lg text-xs font-bold bg-indigo-900 text-white hover:bg-indigo-800 transition-colors"
+          >
+            {fallbacks.withoutFilters === 1 ? t("seeOneWithoutFilters") : t("seeWithoutFilters", { n: fallbacks.withoutFilters })}
+          </FilterLink>
+        )}
+        {/* only worth its own button when it leaves the filters standing —
+            with no filters on, clearing the search IS "browse all" */}
+        {search && hasActiveFilters && (
+          <FilterLink
+            href={buildUrl({ search: null })}
+            className="px-4 py-2 rounded-lg text-xs font-bold border border-line text-ink-soft hover:border-indigo-700 hover:text-indigo-900 transition-colors"
+          >
+            {t("clearSearch")}
+          </FilterLink>
+        )}
+        <Link
+          href="/products"
+          className="px-4 py-2 rounded-lg text-xs font-bold border border-line text-ink-soft hover:border-indigo-700 hover:text-indigo-900 transition-colors"
+        >
+          {t("browseAll")}
+        </Link>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="bg-cream-bg min-h-screen font-body2">
+      <div className="max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-8 2xl:px-12">
+        <nav className="text-[13px] text-ink-muted py-4 flex items-center gap-2">
+          <Link href="/" className="hover:text-indigo-900">{t("home")}</Link>
+          <span>›</span>
+          <span className="text-ink">{title}</span>
+        </nav>
+
+        <div className="grid grid-cols-1 lg:grid-cols-[250px_1fr] gap-7 pb-14">
+          {/* filters sidebar — desktop; phones get the same filters in a bottom sheet */}
+          <aside className="hidden lg:block bg-cream-white border border-line rounded-xl p-5 h-fit lg:sticky lg:top-4">
+            <h4 className="text-[13.5px] font-bold text-ink pb-2.5 border-b border-line mb-3.5">{t("filters")}</h4>
+            {filterContent}
           </aside>
 
           {/* main */}
@@ -187,29 +300,32 @@ export default async function ProductsPage({ searchParams }) {
               <div>
                 <h1 className="font-display text-xl font-semibold text-indigo-950">{title}</h1>
                 <p className="text-[13px] text-ink-muted mt-0.5">
-                  {total} product{total === 1 ? "" : "s"} found
+                  {total === 1 ? t("oneProductFound") : t("productsFound", { n: total })}
                   {didYouMean && search && <span className="text-gold-dark ml-2">— showing closest matches to &quot;{search}&quot;</span>}
                 </p>
               </div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-xs text-ink-muted font-bold">Sort:</span>
+              <div className="flex items-center gap-2 overflow-x-auto no-scrollbar -mx-4 px-4 w-[calc(100%+2rem)] sm:w-auto sm:mx-0 sm:px-0 sm:flex-wrap">
+                <MobileFilterSheet activeCount={activeFilterCount} total={total}>
+                  {filterContent}
+                </MobileFilterSheet>
+                <span className="hidden sm:inline text-xs text-ink-muted font-bold">Sort:</span>
                 {sortOptions.map((o) => (
                   <FilterLink
                     key={o.key}
                     href={buildUrl({ sort: o.key === "new" ? null : o.key })}
-                    className={`px-3 py-1.5 rounded-full text-xs font-bold border transition-colors ${
+                    className={`shrink-0 whitespace-nowrap px-3 py-1.5 rounded-full text-xs font-bold border transition-colors ${
                       sort === o.key
                         ? "bg-indigo-900 text-white border-indigo-900"
                         : "border-line text-ink-soft hover:border-indigo-700 hover:text-indigo-900"
                     }`}
                   >
-                    {o.label}
+                    {t(o.labelKey)}
                   </FilterLink>
                 ))}
               </div>
             </div>
 
-            <ProductGrid products={products} emptyMessage="No products match your filter" />
+            <ProductGrid products={products} emptyState={noResults} />
 
             {totalPages > 1 && (
               <div className="flex items-center justify-center gap-2 pt-8">

@@ -17,6 +17,9 @@ import WishlistPanel from "@/components/profile/WishlistPanel";
 import SettingsPanel from "@/components/profile/SettingsPanel";
 import PaymentMethodsPanel from "@/components/profile/PaymentMethodsPanel";
 import NotificationsPanel from "@/components/profile/NotificationsPanel";
+import DigitalDownloads from "@/components/DigitalDownloads";
+import { RETURN_WINDOW_DAYS } from "@/lib/policyConstants";
+import Icon from "@/components/ui/Icon";
 
 const badge = (color) => `px-2.5 py-1 rounded-full text-[11px] font-bold capitalize ${color}`;
 
@@ -32,7 +35,6 @@ const HISTORY_TYPES = {
   shipment_created: "📦",
 };
 
-const RETURN_WINDOW_DAYS = 7; // keep in sync with models/ReturnRequest.js
 
 const RETURN_STATUS_LABELS = {
   requested: "Return requested",
@@ -88,7 +90,6 @@ export default function ProfilePage() {
   const [returnOrder, setReturnOrder] = useState(null); // order the return modal is open for
   const [trackingData, setTrackingData] = useState({});
   const [digitalDownloads, setDigitalDownloads] = useState({});
-  const [downloadingId, setDownloadingId] = useState("");
   // NOTE: every hook in this component must stay above the loading/no-session
   // early returns below (Rules of Hooks — calling a hook only on some
   // renders makes React lose track of hook order and throw).
@@ -106,21 +107,17 @@ export default function ProfilePage() {
     }
   };
 
-  const startDownload = async (orderId, productId, fileUrl) => {
-    setDownloadingId(productId);
-    try {
-      // records the download (increments the admin-side counter) before
-      // actually opening the file
-      const res = await fetch(`/api/orders/${orderId}/downloads`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ productId }),
-      }).then((r) => r.json());
-      window.open(res.success ? res.data.fileUrl : fileUrl, "_blank", "noopener,noreferrer");
-    } catch {
-      window.open(fileUrl, "_blank", "noopener,noreferrer");
-    }
-    setDownloadingId("");
+  // Downloading itself lives in <DigitalDownloads> (shared with the order
+  // confirmation page and /account/downloads) — the token exchange and the
+  // quota display should behave identically everywhere. This only re-reads
+  // the counts afterwards so "2 of 3 left" updates without a page refresh.
+  const refreshDownloads = () => {
+    fetch("/api/account/downloads", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((res) => {
+        if (res.success) setDigitalDownloads(res.data || {});
+      })
+      .catch(() => {});
   };
 
   const [review, setReview] = useState(null); // { productId, productName }
@@ -151,6 +148,14 @@ export default function ProfilePage() {
       setPaymentMsg({
         type: "bad",
         text: "Payment cancelled — the order wasn't placed. Your cart is still saved if you'd like to try again.",
+      });
+    } else if (payment === "NO_ORDER") {
+      // The gateway sent us back something we can't tie to an order. The
+      // cart is deliberately left alone, and the customer is told what to
+      // do rather than being reassured or alarmed.
+      setPaymentMsg({
+        type: "bad",
+        text: "We couldn't match that payment to an order. If money has left your account, contact us with your transaction ID and we'll sort it out.",
       });
     } else if (payment === "RATE_LIMITED") {
       setPaymentMsg({ type: "bad", text: "Too many payment attempts — please wait a few minutes and try again." });
@@ -318,7 +323,7 @@ export default function ProfilePage() {
   if (status === "loading" || loading) {
     return (
       <div className="bg-cream-bg min-h-screen font-body2">
-        <div className="max-w-7xl mx-auto px-4 py-6">
+        <div className="max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-8 2xl:px-12 py-6">
           <Skeleton className="h-4 w-40 mb-5" />
           <div className="grid grid-cols-1 lg:grid-cols-[260px_1fr] gap-7">
             <div className="hidden lg:block space-y-2">
@@ -369,17 +374,17 @@ export default function ProfilePage() {
     }`;
 
   const navItems = [
-    { key: "overview", label: "Profile Overview", icon: "👤" },
-    { key: "addresses", label: "Addresses", icon: "📍" },
-    { key: "wishlist", label: "Wishlist", icon: "🤍" },
-    { key: "payment", label: "Payment Methods", icon: "💳" },
-    { key: "notifications", label: "Notifications", icon: "🔔" },
-    { key: "settings", label: "Settings", icon: "⚙️" },
+    { key: "overview", label: "Profile Overview", icon: "user" },
+    { key: "addresses", label: "Addresses", icon: "pin" },
+    { key: "wishlist", label: "Wishlist", icon: "heart" },
+    { key: "payment", label: "Payment Methods", icon: "card" },
+    { key: "notifications", label: "Notifications", icon: "bell" },
+    { key: "settings", label: "Settings", icon: "gear" },
   ];
 
   return (
     <div className="bg-cream-bg min-h-screen font-body2">
-      <div className="max-w-7xl mx-auto px-4 py-6">
+      <div className="max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-8 2xl:px-12 py-6">
         <nav className="text-[13px] text-ink-muted flex items-center gap-2 mb-4">
           <Link href="/" className="hover:text-indigo-900">Home</Link>
           <span>›</span>
@@ -390,7 +395,8 @@ export default function ProfilePage() {
           <aside className="bg-cream-white border border-line rounded-xl p-2.5 h-fit lg:sticky lg:top-4 space-y-0.5">
             {navItems.map((item) => (
               <button key={item.key} onClick={() => setTab(item.key)} className={navItemCls(tab === item.key)}>
-                {item.icon} {item.label}
+                <Icon name={item.icon} size={17} className="shrink-0" />
+                {item.label}
               </button>
             ))}
             <div className="border-t border-line my-1.5" />
@@ -599,19 +605,11 @@ export default function ProfilePage() {
                       {digitalDownloads[order._id]?.length > 0 && (
                         <div className="border-t border-line pt-3 space-y-2">
                           <p className="text-[11px] font-bold uppercase tracking-wide text-indigo-700">⚡ Digital Downloads</p>
-                          {digitalDownloads[order._id].map((d) => (
-                            <button
-                              key={d.productId}
-                              onClick={() => startDownload(order._id, d.productId, d.fileUrl)}
-                              disabled={downloadingId === d.productId}
-                              className="w-full flex items-center justify-between bg-indigo-100 border border-indigo-700/20 rounded-lg px-3 py-2 text-left hover:bg-indigo-100/70 transition-colors disabled:opacity-50"
-                            >
-                              <span className="text-xs font-bold text-indigo-950">{d.name}</span>
-                              <span className="text-[11px] font-bold text-indigo-900">
-                                {downloadingId === d.productId ? "Opening..." : "Download ↓"}
-                              </span>
-                            </button>
-                          ))}
+                          <DigitalDownloads
+                            grants={digitalDownloads[order._id]}
+                            compact
+                            onChange={refreshDownloads}
+                          />
                         </div>
                       )}
 
@@ -621,7 +619,8 @@ export default function ProfilePage() {
                             <div className="bg-indigo-950 rounded-lg p-4">
                               <TrackingTimeline
                                 orderStatus={trackingData[order._id].orderStatus}
-                                shipment={trackingData[order._id].shipment}
+                                shipments={trackingData[order._id].shipments}
+                                awaitingShipment={trackingData[order._id].awaitingShipment}
                               />
                             </div>
                           ) : (

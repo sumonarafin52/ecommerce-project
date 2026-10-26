@@ -65,11 +65,11 @@ export default function RegisterPage() {
 
   return (
     <AuthShell
-      quote="Sell more than you shop? Sellers welcome too."
-      sub="One account gets you buying and, whenever you're ready, everything you need to shop smarter on SumonMart."
+      quote="Shopping made simple."
+      sub="One free account for faster checkout, order tracking, easy returns and a wishlist that follows you."
       stats={[
-        { value: "18k+", label: "active sellers" },
-        { value: "0%", label: "signup fee" },
+        { value: "7-day", label: "easy returns" },
+        { value: "Free", label: "to join" },
       ]}
     >
       <h1 className="font-display text-[27px] font-semibold text-ink mb-1.5">Create your account</h1>

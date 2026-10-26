@@ -1,7 +1,7 @@
 // components/product/ProductCard.jsx
 "use client";
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
@@ -9,6 +9,11 @@ import useCartStore from "@/store/cartStore";
 import useWishlistStore from "@/store/wishlistStore";
 import { formatCurrency, getEffectivePrice, getDiscountPercentage, getTotalStock } from "@/lib/utils";
 import SmartImage from "@/components/ui/SmartImage";
+import QuickView from "@/components/product/QuickView";
+import { useT } from "@/components/LanguageProvider";
+import { productPath } from "@/lib/slug";
+import Icon from "@/components/ui/Icon";
+import Rating from "@/components/product/Rating";
 
 export default function ProductCard({ product }) {
   const router = useRouter();
@@ -17,6 +22,10 @@ export default function ProductCard({ product }) {
   const wished = useWishlistStore((s) => s.has(product._id));
   const toggleWishlist = useWishlistStore((s) => s.toggle);
   const [added, setAdded] = useState(false);
+  const t = useT();
+  const [quickOpen, setQuickOpen] = useState(false);
+  // stable identity: QuickView's focus/scroll-lock effect depends on it
+  const closeQuick = useCallback(() => setQuickOpen(false), []);
 
   const price = getEffectivePrice(product);
   const discount = getDiscountPercentage(product);
@@ -27,7 +36,7 @@ export default function ProductCard({ product }) {
     if (hasVariants) {
       // can't add a specific variant from a summary card — send them to
       // pick one on the detail page instead of guessing
-      router.push(`/products/${product._id}`);
+      router.push(productPath(product));
       return;
     }
     addItem(product);
@@ -38,7 +47,7 @@ export default function ProductCard({ product }) {
   const handleWishlist = (e) => {
     e.preventDefault();
     if (!session) {
-      router.push(`/login?callbackUrl=${encodeURIComponent("/products/" + product._id)}`);
+      router.push(`/login?callbackUrl=${encodeURIComponent(productPath(product))}`);
       return;
     }
     toggleWishlist(product._id);
@@ -46,7 +55,7 @@ export default function ProductCard({ product }) {
 
   return (
     <div className="group relative bg-cream-white border border-line rounded-xl overflow-hidden transition-all duration-300 hover:shadow-premium hover:-translate-y-1 hover:border-gold/40">
-      <Link href={`/products/${product._id}`}>
+      <Link href={productPath(product)}>
         <div className="relative aspect-square bg-cream-alt overflow-hidden">
           {product.images?.[0] ? (
             <SmartImage
@@ -67,7 +76,7 @@ export default function ProductCard({ product }) {
           )}
           {outOfStock && (
             <span className="absolute top-2.5 left-2.5 bg-ink-muted text-white text-[11px] font-bold px-2.5 py-1 rounded">
-              Out of stock
+              {t("outOfStock")}
             </span>
           )}
           <button
@@ -77,16 +86,37 @@ export default function ProductCard({ product }) {
             }`}
             aria-label={wished ? "Remove from wishlist" : "Add to wishlist"}
           >
-            {wished ? "❤️" : "🤍"}
+            <Icon
+              name="heart"
+              size={16}
+              className={wished ? "fill-brick text-brick" : "text-ink-soft"}
+            />
+          </button>
+          {/* desktop only — on phones, tapping through to the page is the
+              natural flow and there's no hover to reveal this */}
+          <button
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              setQuickOpen(true);
+            }}
+            className="hidden md:flex absolute inset-x-3 bottom-3 items-center justify-center gap-1.5 bg-white/95 backdrop-blur text-indigo-950 text-[12.5px] font-bold py-2 rounded-lg shadow-md opacity-0 translate-y-2 group-hover:opacity-100 group-hover:translate-y-0 focus-visible:opacity-100 focus-visible:translate-y-0 transition-all duration-200 hover:bg-white"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7z" />
+              <circle cx="12" cy="12" r="3" />
+            </svg>
+            Quick view
           </button>
         </div>
       </Link>
+      {quickOpen && <QuickView product={product} onClose={closeQuick} />}
 
       <div className="p-3.5">
         <p className="text-[11px] uppercase tracking-wide text-ink-muted font-bold">{product.category}</p>
 
         <Link
-          href={`/products/${product._id}`}
+          href={productPath(product)}
           className="block text-[14.5px] text-ink font-semibold leading-snug mt-1 min-h-[38px] line-clamp-2 hover:text-indigo-900 transition-colors"
         >
           {product.name}
@@ -95,14 +125,12 @@ export default function ProductCard({ product }) {
         <div className="flex items-center gap-1 mt-2 h-4">
           {product.numReviews > 0 ? (
             <>
-              <span className="text-gold text-xs tracking-tight" aria-label={`Rated ${(product.ratingAvg || 0).toFixed(1)} out of 5`}>
-                {"★".repeat(Math.round(product.ratingAvg || 0)) + "☆".repeat(5 - Math.round(product.ratingAvg || 0))}
-              </span>
+              <Rating value={product.ratingAvg} size={12} />
               <span className="text-[11px] text-ink-muted">({product.numReviews})</span>
             </>
           ) : (
             // hollow stars + "(0)" reads as a bad rating; it's just new
-            <span className="text-[11px] font-semibold text-indigo-700">New</span>
+            <span className="text-[11px] font-semibold text-indigo-700">{t("newLabel")}</span>
           )}
         </div>
 
@@ -124,7 +152,7 @@ export default function ProductCard({ product }) {
               : "bg-indigo-950 text-white group-hover:bg-gold group-hover:text-indigo-950"
           }`}
         >
-          {outOfStock ? "Unavailable" : hasVariants ? "Select Options" : added ? "Added ✓" : "🛒 Add to Cart"}
+          {outOfStock ? t("outOfStock") : hasVariants ? t("selectOptions") : added ? t("added") : t("addToCart")}
         </button>
       </div>
     </div>

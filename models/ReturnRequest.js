@@ -1,7 +1,9 @@
 // models/ReturnRequest.js
 import mongoose from "mongoose";
 
-export const RETURN_WINDOW_DAYS = 7; // matches the "7-day returns" promise on product pages
+import { RETURN_WINDOW_DAYS } from "@/lib/policyConstants";
+// re-exported so existing server imports keep working
+export { RETURN_WINDOW_DAYS };
 
 export const RETURN_REASONS = {
   damaged: "Arrived damaged",

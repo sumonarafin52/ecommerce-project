@@ -28,6 +28,15 @@ const variantCombinationSchema = new mongoose.Schema(
 const productSchema = new mongoose.Schema(
   {
     name: { type: String, required: true, trim: true },
+    // The readable part of the product's URL (/products/ceramic-mug).
+    // Assigned from the name on create and editable by staff afterwards; see
+    // lib/slug.js. Sparse because products created before slugs existed have
+    // none until the backfill runs, and a plain unique index would reject
+    // every one of them after the first.
+    // `default: undefined` (not "") on purpose: a sparse unique index only
+    // skips documents where the field is ABSENT, so a default of "" would
+    // have every slug-less product collide with the first one.
+    slug: { type: String, default: undefined, trim: true, lowercase: true, index: { unique: true, sparse: true } },
     description: { type: String, default: "" },
     shortDescription: { type: String, default: "" },
     category: { type: String, required: true, trim: true },
@@ -47,6 +56,17 @@ const productSchema = new mongoose.Schema(
     options: [variantOptionSchema],
     combinations: [variantCombinationSchema],
     digitalProduct: { type: mongoose.Schema.Types.ObjectId, ref: "DigitalProduct", default: null },
+    // Whether this product has to be shipped.
+    //   "auto"   — shipped unless a digital file is attached (the sensible
+    //              default, and correct for every existing product without
+    //              a migration)
+    //   "always" — shipped even though it has a digital file, e.g. a
+    //              hardback that comes with the ebook
+    //   "never"  — never shipped even with no digital file, e.g. a service,
+    //              a gift card, a booking
+    // Read through requiresShipping() in lib/shippingRequirement.js — the
+    // storefront must never decide this for itself.
+    shippingRequirement: { type: String, enum: ["auto", "always", "never"], default: "auto" },
     ratingAvg: { type: Number, default: 0 },
     numReviews: { type: Number, default: 0 },
   },

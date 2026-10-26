@@ -8,6 +8,10 @@ import toast from "react-hot-toast";
 import usePermissions from "@/lib/usePermissions";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { ORDER_STATUSES, ORDER_STATUS_LABELS, ORDER_STATUS_COLORS } from "@/lib/orderStatus";
+import Checkbox from "@/components/admin/ui/Checkbox";
+import Button from "@/components/admin/ui/Button";
+import PermissionGate from "@/components/admin/ui/PermissionGate";
+import ErrorState from "@/components/admin/ui/ErrorState";
 
 // "pending" is a system-driven state (awaiting payment) — staff shouldn't
 // bulk-assign it, so it's left out of the bulk-action list. The filter
@@ -15,10 +19,8 @@ import { ORDER_STATUSES, ORDER_STATUS_LABELS, ORDER_STATUS_COLORS } from "@/lib/
 const bulkStatusOptions = ORDER_STATUSES.filter((s) => s !== "pending");
 const paymentOptions = ["pending", "paid", "failed", "refunded"];
 
-const selectCls =
-  "bg-primary border border-white/15 rounded-md px-3 py-2 text-sm text-white outline-none focus:border-accent transition-colors";
-const inputCls =
-  "bg-primary border border-white/15 rounded-md px-3 py-2 text-sm text-white placeholder-zinc-500 outline-none focus:border-accent transition-colors";
+const selectCls = "admin-input";
+const inputCls = "admin-input";
 
 const badge = (color) => `px-2.5 py-1 rounded-full text-[11px] font-bold capitalize ${color}`;
 
@@ -60,7 +62,8 @@ const matchTab = (o, key) => {
 
 export default function AdminOrdersPage() {
   const { data: session, status } = useSession();
-  const { can, loading: permLoading } = usePermissions();
+  const { can, loading: permLoading, failed: permFailed, refresh: refreshPermissions } = usePermissions();
+  const [loadError, setLoadError] = useState(false);
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState("all");
@@ -89,12 +92,14 @@ export default function AdminOrdersPage() {
   const isAdmin = canView; // kept as the existing variable name used below
 
   const loadOrders = () => {
+    setLoadError(false);
     fetch("/api/orders")
       .then((r) => r.json())
       .then((res) => {
         if (res.success) setOrders(Array.isArray(res.data) ? res.data : res.data.orders || []);
+        else setLoadError(true);
       })
-      .catch(() => {})
+      .catch(() => setLoadError(true))
       .finally(() => setLoading(false));
   };
 
@@ -122,6 +127,7 @@ export default function AdminOrdersPage() {
           o._id,
           o.orderNumber,
           o.user?.name,
+          o.guestEmail,
           o.user?.email,
           o.shippingAddress?.fullName,
           o.shippingAddress?.phone,
@@ -161,9 +167,9 @@ export default function AdminOrdersPage() {
   // ===== CSV EXPORT (client-side — exports whatever is currently filtered) =====
   const exportCSV = () => {
     const rows = visible.map((o) => ({
-      "Order Number": `#${(o._id || "").slice(-6).toUpperCase()}`,
+      "Order Number": (o.orderNumber || `#${(o._id || "").slice(-6).toUpperCase()}`),
       "Date": formatDate(o.createdAt),
-      "Customer": o.user?.name || "",
+      "Customer": o.user?.name || o.shippingAddress?.fullName || "Guest",
       "Email": o.user?.email || "",
       "Phone": o.shippingAddress?.phone || "",
       "City": o.shippingAddress?.city || "",
@@ -245,15 +251,19 @@ export default function AdminOrdersPage() {
     );
   }
 
-  if (!session || !isAdmin) {
+  if (!session || permLoading || permFailed || !can("orders")) {
     return (
-      <div className="bg-primary min-h-screen flex flex-col items-center justify-center gap-4 text-center px-4">
-        <p className="text-xl font-bold text-white">Admin access required</p>
-        <Link href="/" className="bg-accent hover:bg-accent/80 text-primary font-bold px-6 py-3 rounded-md transition-colors">
-          Back to home
-        </Link>
-      </div>
+      <PermissionGate
+        perm="orders"
+        what="orders"
+        signedIn={!!session}
+        state={{ loading: permLoading, failed: permFailed, can, refresh: refreshPermissions }}
+      />
     );
+  }
+
+  if (loadError) {
+    return <ErrorState what="orders" onRetry={() => { setLoadError(false); load(); }} />;
   }
 
   return (
@@ -273,12 +283,9 @@ export default function AdminOrdersPage() {
               Export CSV
             </button>
             {canUpdate && (
-              <Link
-                href="/admin/orders/new"
-                className="bg-accent hover:bg-accent/80 text-primary font-bold px-4 py-2.5 rounded-md text-sm transition-colors shadow-glow"
-              >
+              <Button as={Link} href="/admin/orders/new">
                 + Create Order
-              </Link>
+              </Button>
             )}
           </div>
         </div>
@@ -289,7 +296,7 @@ export default function AdminOrdersPage() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search by order id, email, phone, name, city or address..."
-            className="flex-1 bg-primary-light border border-white/15 rounded-md px-4 py-2.5 text-sm text-white placeholder-zinc-500 outline-none focus:border-accent transition-colors"
+            className="admin-input flex-1"
           />
           <button
             onClick={() => setShowFilters((s) => !s)}
@@ -387,20 +394,27 @@ export default function AdminOrdersPage() {
 
         {/* bulk actions bar */}
         {selectedIds.length > 0 && canUpdate && (
-          <div className="flex flex-wrap items-center gap-3 bg-accent/10 border border-accent/40 rounded-xl px-4 py-3">
-            <span className="text-sm font-bold text-accent">{selectedIds.length} selected</span>
+          <div className="flex flex-wrap items-center gap-3 admin-card rounded-xl px-4 py-3">
+            <span className="text-sm font-bold admin-text-primary">{selectedIds.length} selected</span>
             <select className={selectCls} value={bulkStatus} onChange={(e) => setBulkStatus(e.target.value)}>
               {bulkStatusOptions.map((s) => (
                 <option key={s} value={s} className="bg-primary">{ORDER_STATUS_LABELS[s]}</option>
               ))}
             </select>
-            <button onClick={bulkUpdate} disabled={updating} className="bg-accent hover:bg-accent/80 text-primary text-xs font-bold px-3 py-2 rounded-md disabled:opacity-50">
+            <Button size="sm" onClick={bulkUpdate} disabled={updating}>
               Apply Status
-            </button>
-            <button onClick={bulkDelete} disabled={updating} className="border border-red-500/40 text-red-400 hover:bg-red-500/10 text-xs font-bold px-3 py-2 rounded-md disabled:opacity-50">
+            </Button>
+            <Link
+              href={`/admin/orders/packing-slips?ids=${selectedIds.join(",")}`}
+              target="_blank"
+              className="border admin-border hover:border-accent hover:text-accent admin-text-secondary text-xs font-bold px-3 py-2 rounded-md"
+            >
+              🖨 Packing slips
+            </Link>
+            <button onClick={bulkDelete} disabled={updating} className="border border-rose-300 text-rose-600 hover:bg-rose-50 text-xs font-bold px-3 py-2 rounded-md disabled:opacity-50">
               Delete Selected
             </button>
-            <button onClick={() => setSelectedIds([])} className="text-xs text-zinc-400 hover:text-white font-bold ml-auto">
+            <button onClick={() => setSelectedIds([])} className="text-xs admin-text-muted hover:text-accent font-bold ml-auto">
               Clear selection
             </button>
           </div>
@@ -415,11 +429,10 @@ export default function AdminOrdersPage() {
               <thead>
                 <tr className="text-zinc-400 border-b border-white/10">
                   <th className="p-4 w-10">
-                    <input
-                      type="checkbox"
+                    <Checkbox
                       checked={visible.length > 0 && selectedIds.length === visible.length}
                       onChange={toggleAll}
-                      className="accent-[#f5a623] w-4 h-4"
+                      aria-label="Select all orders on this page"
                     />
                   </th>
                   <th className="p-4 font-medium">Order</th>
@@ -435,11 +448,15 @@ export default function AdminOrdersPage() {
                 {visible.map((o) => (
                   <tr key={o._id} className={`border-b border-white/5 transition-colors ${selectedIds.includes(o._id) ? "bg-accent/5" : "hover:bg-white/5"}`}>
                     <td className="p-4">
-                      <input type="checkbox" checked={selectedIds.includes(o._id)} onChange={() => toggleOne(o._id)} className="accent-[#f5a623] w-4 h-4" />
+                      <Checkbox
+                        checked={selectedIds.includes(o._id)}
+                        onChange={() => toggleOne(o._id)}
+                        aria-label={`Select order ${o.orderNumber || (o._id || "").slice(-6).toUpperCase()}`}
+                      />
                     </td>
                     <td className="p-4">
                       <Link href={`/admin/orders/${o._id}`} className="font-bold text-white hover:text-accent hover:underline">
-                        #{(o._id || "").slice(-6).toUpperCase()}
+                        {o.orderNumber || `#${(o._id || "").slice(-6).toUpperCase()}`}
                       </Link>
                       {o.paymentMethod === "cod" && (
                         <span className="text-[10px] font-bold uppercase tracking-wider text-blue-400 bg-blue-500/15 px-1.5 py-0.5 rounded">COD</span>
@@ -447,7 +464,7 @@ export default function AdminOrdersPage() {
                     </td>
                     <td className="p-4 text-zinc-400">{formatDate(o.createdAt)}</td>
                     <td className="p-4 text-zinc-300">
-                      {o.user?.name || "Unknown"}
+                      {o.user?.name || o.shippingAddress?.fullName || "Guest"}
                       <p className="text-xs text-zinc-500">{o.shippingAddress?.city}</p>
                     </td>
                     <td className="p-4"><span className={badge(payColors[o.paymentStatus])}>{o.paymentStatus}</span></td>

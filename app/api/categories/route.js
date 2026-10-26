@@ -8,12 +8,21 @@ import Category from "@/models/Category";
 import { hasPermission } from "@/lib/rbac";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { serverError } from "@/lib/apiError";
+import { getStorefrontCategories } from "@/lib/categories";
 
 // GET: public — sob category + subcategory (dropdown er jonno)
-export async function GET() {
+// ?scope=storefront also includes categories used by public products that
+// were never created in Admin → Categories (see lib/categories.js). The
+// default stays documents-only, because the admin manager edits/deletes
+// these by id.
+export async function GET(request) {
   try {
     await connectDB();
-    const categories = await Category.find().sort({ order: 1, name: 1 }).lean();
+    const scope = request ? new URL(request.url).searchParams.get("scope") : null;
+    const categories =
+      scope === "storefront"
+        ? await getStorefrontCategories()
+        : await Category.find().sort({ order: 1, name: 1 }).lean();
     return NextResponse.json({ success: true, data: categories });
   } catch (error) {
     return serverError(error, "api/categories");

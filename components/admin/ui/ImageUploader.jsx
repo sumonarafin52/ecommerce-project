@@ -6,6 +6,7 @@
 
 import { useRef, useState } from "react";
 import toast from "react-hot-toast";
+import Button from "@/components/admin/ui/Button";
 
 export default function ImageUploader({ value, onChange, label = "Image", aspect = "aspect-video" }) {
   const [uploading, setUploading] = useState(false);
@@ -51,9 +52,9 @@ export default function ImageUploader({ value, onChange, label = "Image", aspect
         }}
       />
       {value && (
-        <button onClick={() => onChange("")} className="text-[11px] font-bold text-rose-500 hover:underline mt-1">
+        <Button variant="link-danger" className="mt-1" onClick={() => onChange("")}>
           Remove image
-        </button>
+        </Button>
       )}
     </div>
   );

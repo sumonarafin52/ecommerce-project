@@ -9,11 +9,15 @@ import Badge from "@/components/admin/ui/Badge";
 import EmptyState from "@/components/admin/ui/EmptyState";
 import usePermissions from "@/lib/usePermissions";
 import { formatDateTime } from "@/lib/utils";
+import { productPath } from "@/lib/slug";
+import PermissionGate from "@/components/admin/ui/PermissionGate";
+import ErrorState from "@/components/admin/ui/ErrorState";
 
 const TONE = { pending: "warning", published: "success", hidden: "neutral" };
 
 export default function AdminQuestionsPage() {
-  const { can, loading: permLoading } = usePermissions();
+  const { can, loading: permLoading, failed: permFailed, refresh: refreshPermissions } = usePermissions();
+  const [loadError, setLoadError] = useState(false);
   const [questions, setQuestions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("pending");
@@ -22,10 +26,11 @@ export default function AdminQuestionsPage() {
 
   const load = () => {
     setLoading(true);
+    setLoadError(false);
     fetch(`/api/questions${filter === "all" ? "" : `?status=${filter}`}`, { cache: "no-store" })
       .then((r) => r.json())
-      .then((res) => res.success && setQuestions(res.data))
-      .catch(() => {})
+      .then((res) => (res.success ? setQuestions(res.data) : setLoadError(true)))
+      .catch(() => setLoadError(true))
       .finally(() => setLoading(false));
   };
 
@@ -50,18 +55,22 @@ export default function AdminQuestionsPage() {
     }
     setBusyId("");
   };
-
-  if (permLoading) return null;
-  if (!can("products")) {
+  if (permLoading || permFailed || !can("products")) {
     return (
-      <div className="max-w-5xl mx-auto px-4 lg:px-8 py-6">
-        <p className="admin-text-secondary text-sm">You don&apos;t have permission to manage product questions.</p>
-      </div>
+      <PermissionGate
+        perm="products"
+        what="products"
+        state={{ loading: permLoading, failed: permFailed, can, refresh: refreshPermissions }}
+      />
     );
   }
 
+  if (loadError) {
+    return <ErrorState what="product questions" onRetry={() => { setLoadError(false); load(); }} />;
+  }
+
   return (
-    <div className="max-w-5xl mx-auto px-4 lg:px-8 py-6">
+    <div className="max-w-[1700px] mx-auto px-4 lg:px-8 py-6">
       <PageHeader
         title="Product Q&A"
         description="Customer questions from product pages. Answered questions appear publicly under the product."
@@ -86,7 +95,7 @@ export default function AdminQuestionsPage() {
           {[0, 1, 2].map((i) => <div key={i} className="admin-card rounded-xl h-28 animate-pulse" />)}
         </div>
       ) : questions.length === 0 ? (
-        <EmptyState icon="❓" title={filter === "pending" ? "No questions waiting" : "Nothing here"} description="Questions customers ask on product pages show up here." />
+        <EmptyState icon="question" title={filter === "pending" ? "No questions waiting" : "Nothing here"} description="Questions customers ask on product pages show up here." />
       ) : (
         <div className="space-y-3">
           {questions.map((q) => (
@@ -94,7 +103,7 @@ export default function AdminQuestionsPage() {
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div className="min-w-0">
                   {q.product ? (
-                    <Link href={`/products/${q.product._id}`} target="_blank" className="text-xs font-bold text-accent hover:underline">
+                    <Link href={productPath(q.product)} target="_blank" className="text-xs font-bold text-accent hover:underline">
                       {q.product.name}
                     </Link>
                   ) : (
@@ -114,7 +123,7 @@ export default function AdminQuestionsPage() {
                 value={drafts[q._id] ?? q.answer ?? ""}
                 onChange={(e) => setDrafts((d) => ({ ...d, [q._id]: e.target.value }))}
                 placeholder="Write an answer — it'll be shown publicly on the product page"
-                className="admin-input w-full rounded-lg px-3 py-2 text-sm"
+                className="admin-input w-full"
               />
               <div className="flex flex-wrap gap-2 justify-end">
                 {q.status !== "hidden" && (

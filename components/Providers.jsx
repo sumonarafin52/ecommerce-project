@@ -3,11 +3,15 @@
 
 import { SessionProvider } from "next-auth/react";
 import { Toaster } from "react-hot-toast";
+import LanguageProvider from "@/components/LanguageProvider";
+import SavedCartSync from "@/components/cart/SavedCartSync";
 
 export default function Providers({ children }) {
   return (
     <SessionProvider>
-      {children}
+      {/* renders nothing — keeps a signed-in shopper's basket on the server */}
+      <SavedCartSync />
+      <LanguageProvider>{children}</LanguageProvider>
       <Toaster
         position="top-right"
         toastOptions={{

@@ -11,10 +11,15 @@ import ProductGrid from "@/components/product/ProductGrid";
 import ProductGallery from "@/components/product/ProductGallery";
 import StockAlertButton from "@/components/product/StockAlertButton";
 import CompareButton from "@/components/product/CompareButton";
+import ShareButtons from "@/components/product/ShareButtons";
+import DeliveryEstimate from "@/components/product/DeliveryEstimate";
 import { ProductDetailSkeleton } from "@/components/ui/Skeleton";
 import { formatCurrency, getEffectivePrice, getDiscountPercentage } from "@/lib/utils";
 import Reviews from "@/components/product/Reviews";
 import ProductQuestions from "@/components/product/ProductQuestions";
+import { productPath } from "@/lib/slug";
+import Icon from "@/components/ui/Icon";
+import { recordView } from "@/lib/productSignals";
 
 function Stars({ rating, count }) {
   // A new product with no reviews shouldn't look badly rated.
@@ -50,6 +55,7 @@ export default function ProductDetailsPage() {
   const wished = useWishlistStore((s) => (product ? s.has(product._id) : false));
   const toggleWishlist = useWishlistStore((s) => s.toggle);
   const [related, setRelated] = useState([]);
+  const [relatedLabel, setRelatedLabel] = useState("");
   const [loading, setLoading] = useState(true);
   const [imageIndex, setImageIndex] = useState(0);
   const [quantity, setQuantity] = useState(1);
@@ -58,12 +64,17 @@ export default function ProductDetailsPage() {
 
   useEffect(() => {
     setLoading(true);
+    let currentId = null;
     fetch(`/api/products/${params.id}`)
       .then((r) => r.json())
       .then((res) => {
         if (!res.success) return null;
         const p = res.data;
         setProduct(p);
+        // The URL segment is a slug now, so the related-products filter
+        // below has to compare against the real id rather than params.id —
+        // otherwise a product appears in its own "related" row.
+        currentId = p._id;
         setQuantity(1);
         setImageIndex(0);
         // variant auto-select: prottek option er prothom value
@@ -74,6 +85,10 @@ export default function ProductDetailsPage() {
           });
           setSelected(init);
         } else setSelected({});
+        // Tells the shop this product was looked at — once per session, so
+        // the figure means "people" rather than "page loads".
+        recordView(p._id);
+
         try {
           const viewed = JSON.parse(localStorage.getItem("sm_viewed") || "[]");
           const rest = viewed.filter((v) => v.id !== p._id);
@@ -82,12 +97,17 @@ export default function ProductDetailsPage() {
             JSON.stringify([{ id: p._id, name: p.name, category: p.category }, ...rest].slice(0, 8))
           );
         } catch {}
-        return fetch(`/api/products?category=${encodeURIComponent(p.category)}&limit=9`).then((r) =>
-          r.json()
-        );
+        // Worked out on the server from what people actually buy together,
+        // falling back through the catalogue's own structure. Asking for
+        // "everything in this category" used to leave an empty box on any
+        // product whose category held nothing else.
+        return fetch(`/api/products/${params.id}/related?limit=8`).then((r) => r.json());
       })
       .then((res) => {
-        if (res?.success) setRelated(res.data.products.filter((p) => p._id !== params.id).slice(0, 8));
+        if (res?.success) {
+          setRelated(res.data.products);
+          setRelatedLabel(res.data.label);
+        }
       })
       .catch(() => {})
       .finally(() => setLoading(false));
@@ -128,7 +148,7 @@ export default function ProductDetailsPage() {
   if (loading) {
     return (
       <div className="bg-cream-bg min-h-screen font-body2">
-        <div className="max-w-7xl mx-auto px-4 py-6">
+        <div className="max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-8 2xl:px-12 py-6">
           <div className="h-4 w-48 mb-5 animate-pulse bg-line/60 rounded" />
           <ProductDetailSkeleton />
         </div>
@@ -204,12 +224,21 @@ export default function ProductDetailsPage() {
 
   return (
     <div className="bg-cream-bg min-h-screen font-body2">
-      <div className="max-w-7xl mx-auto px-4 py-6 space-y-10">
+      <div className="max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-8 2xl:px-12 py-6 space-y-10">
         <nav className="text-[13px] text-ink-muted flex items-center gap-2 flex-wrap">
-          <Link href="/" className="hover:text-indigo-900">Home</Link>
-          <span>›</span>
-          <Link href="/products" className="hover:text-indigo-900">{product.category}</Link>
-          <span>›</span>
+          {/* The root crumb is "Shop", not "Home": a product in the Home
+              category rendered "Home > Home > Ceramic Mug", which reads as
+              a bug. The category crumb also links to the category now
+              rather than to everything. */}
+          <Link href="/" className="hover:text-indigo-900">Shop</Link>
+          <span aria-hidden="true">›</span>
+          <Link
+            href={`/products?category=${encodeURIComponent(product.category || "")}`}
+            className="hover:text-indigo-900"
+          >
+            {product.category}
+          </Link>
+          <span aria-hidden="true">›</span>
           <span className="text-ink">{product.name}</span>
         </nav>
 
@@ -238,9 +267,14 @@ export default function ProductDetailsPage() {
 
           {/* info */}
           <div className="space-y-4">
-            <span className="inline-block text-[11px] uppercase tracking-widest font-bold text-maroon">
+            {/* A link back to the category earns its place; the same words
+                set as a tracked-out capital label did not. */}
+            <Link
+              href={`/products?category=${encodeURIComponent(product.category || "")}`}
+              className="inline-block text-[13px] font-semibold text-maroon hover:underline underline-offset-4"
+            >
               {product.category}
-            </span>
+            </Link>
             <h1 className="font-display text-2xl sm:text-[28px] font-semibold text-ink leading-snug">{product.name}</h1>
             <Stars rating={product.ratingAvg} count={product.numReviews} />
 
@@ -363,7 +397,7 @@ export default function ProductDetailsPage() {
                 aria-label={wished ? "Remove from wishlist" : "Add to wishlist"}
                 className="w-[52px] shrink-0 rounded-lg border-[1.5px] border-line hover:border-brick/40 flex items-center justify-center text-lg transition-colors"
               >
-                {wished ? "❤️" : "🤍"}
+                <Icon name="heart" size={20} className={wished ? "fill-brick text-brick" : "text-ink-muted"} />
               </button>
             </div>
 
@@ -373,26 +407,30 @@ export default function ProductDetailsPage() {
               </p>
             )}
 
-            <div className="flex justify-end">
+            {!product.digitalProduct && !outOfStock && (
+              <DeliveryEstimate productId={product._id} unitPrice={displayPrice} quantity={quantity} />
+            )}
+
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <ShareButtons name={product.name} path={productPath(product)} />
               <CompareButton productId={product._id} />
             </div>
-
-            <div className="grid grid-cols-3 gap-2 pt-3 border-t border-line">
+            {/* The three facts that decide a cash-on-delivery purchase, set
+                as a list rather than three boxed cards: boxing them made
+                each one look like a separate offer to evaluate, when they
+                are simply the terms of this sale. */}
+            <ul className="pt-4 border-t border-line space-y-2.5">
               {[
-                { icon: "🚚", title: "Nationwide", sub: "All 64 districts" },
-                { icon: "↩️", title: "Easy returns", sub: "Within 7 days" },
-                { icon: "🔒", title: "Secure payment", sub: "COD or online" },
+                { icon: "truck", text: "Delivered to all 64 districts" },
+                { icon: "returns", text: "Return within 7 days, no reason needed" },
+                { icon: "shield", text: "Pay cash at your door, or online" },
               ].map((t) => (
-                <div
-                  key={t.title}
-                  className="text-center bg-cream-alt/50 border border-line rounded-lg px-2 py-3 transition-colors hover:border-gold/50"
-                >
-                  <div className="text-lg leading-none mb-1.5">{t.icon}</div>
-                  <p className="text-[11.5px] font-bold text-ink leading-tight">{t.title}</p>
-                  <p className="text-[10.5px] text-ink-muted mt-0.5">{t.sub}</p>
-                </div>
+                <li key={t.icon} className="flex items-center gap-2.5 text-[13px] text-ink-soft">
+                  <Icon name={t.icon} size={17} className="text-gold-dark shrink-0" />
+                  {t.text}
+                </li>
               ))}
-            </div>
+            </ul>
           </div>
         </div>
 
@@ -410,20 +448,28 @@ export default function ProductDetailsPage() {
 
         <ProductQuestions productId={product._id} />
 
-        <section>
-          <h2 className="font-display text-xl sm:text-2xl font-semibold text-indigo-950 mb-4 flex items-center gap-2">
-            <span className="w-1 h-6 bg-gold rounded-full" />
-            You may also like
-          </h2>
-          <ProductGrid products={related} emptyMessage="No related products" />
-        </section>
+        {/* Dropped entirely when there is nothing to show. A shop with one
+            product in a category used to get a dashed "No related products"
+            box on every visit, which reads as a broken page rather than an
+            empty one. The heading is whatever the server actually matched
+            on, so a row of category filler is never labelled as something
+            people bought together. */}
+        {related.length > 0 && (
+          <section>
+            <h2 className="font-display text-xl sm:text-2xl font-semibold text-indigo-950 mb-4 flex items-center gap-2">
+              <span className="w-1 h-6 bg-gold rounded-full" />
+              {relatedLabel || "You may also like"}
+            </h2>
+            <ProductGrid products={related} />
+          </section>
+        )}
       </div>
 
       {/* Mobile sticky buy bar — on a phone the real buy button scrolls out
           of view as soon as someone reads the description or reviews, so
           this keeps the price and primary action reachable throughout.
           Hidden on desktop, where the buy box already sits beside the gallery. */}
-      <div className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-cream-white border-t border-line px-4 py-3 flex items-center gap-3 shadow-[0_-4px_16px_rgba(30,58,95,0.08)]">
+      <div className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-cream-white/95 backdrop-blur-md border-t border-line px-4 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] flex items-center gap-3 shadow-[0_-4px_16px_rgba(30,58,95,0.08)]">
         <div className="min-w-0">
           <p className="font-display text-lg font-bold text-indigo-900 leading-none">{formatCurrency(displayPrice)}</p>
           {discountPct > 0 && (

@@ -28,7 +28,7 @@ export async function generateMetadata() {
     // DB unreachable at build/edge time — fall back to defaults below
   }
 
-  const storeName = general.storeName || "SumonMart";
+  const storeName = general.storeName || "Online Store";
   const description =
     general.storeDescription ||
     "Best online shopping experience — bilingual (English/Bangla) storefront with fast delivery across Bangladesh.";
@@ -44,14 +44,29 @@ export async function generateMetadata() {
       type: "website",
       images: general.storeLogo ? [{ url: general.storeLogo }] : undefined,
     },
-    icons: general.storeLogo ? { icon: general.storeLogo } : undefined,
+    icons: general.storeLogo
+      ? { icon: general.storeLogo, apple: "/icons/apple-touch-icon.png" }
+      // name the favicon explicitly: supplying an `icons` object replaces
+      // the automatic app/icon.svg, which left browser tabs with no icon
+      : { icon: "/icon.svg", apple: "/icons/apple-touch-icon.png" },
+    // iOS: full-screen when launched from the home screen
+    appleWebApp: { capable: true, title: storeName, statusBarStyle: "default" },
     robots: { index: true, follow: true },
   };
 }
 
+// colours the browser/status bar on phones to match the brand
+// viewportFit "cover" lets pages use the full screen on notched phones —
+// without it, env(safe-area-inset-*) is always 0 and the bottom bars would
+// sit under the iPhone home indicator in installed-app mode.
+export const viewport = { themeColor: "#1E3A5F", viewportFit: "cover", width: "device-width", initialScale: 1 };
+
 export default function RootLayout({ children }) {
   return (
     <html lang="en">
+      {/* LanguageProvider updates this after mount. Reading the cookie here
+          would make EVERY page dynamic — too high a price for setting it a
+          moment earlier. */}
       <body className={`${inter.variable} ${notoBengali.variable} ${fraunces.variable} ${publicSans.variable} ${inter.className}`}>
         <Providers>
           <LayoutSwitcher>{children}</LayoutSwitcher>

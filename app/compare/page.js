@@ -7,6 +7,8 @@ import useCompareStore from "@/store/compareStore";
 import useCartStore from "@/store/cartStore";
 import SmartImage from "@/components/ui/SmartImage";
 import { formatCurrency, getEffectivePrice, getTotalStock } from "@/lib/utils";
+import { productPath } from "@/lib/slug";
+import Rating from "@/components/product/Rating";
 
 export default function ComparePage() {
   const ids = useCompareStore((s) => s.ids);
@@ -69,7 +71,7 @@ export default function ComparePage() {
       render: (p) =>
         p.numReviews > 0 ? (
           <span className={products.length > 1 && (p.ratingAvg || 0) === bestRating ? "font-bold text-green-700" : ""}>
-            ★ {(p.ratingAvg || 0).toFixed(1)} <span className="text-ink-muted text-xs">({p.numReviews})</span>
+            <Rating value={p.ratingAvg} count={p.numReviews} size={12} />
           </span>
         ) : (
           <span className="text-ink-muted">No reviews yet</span>
@@ -112,7 +114,7 @@ export default function ComparePage() {
 
   return (
     <div className="bg-cream-bg min-h-screen font-body2">
-      <div className="max-w-7xl mx-auto px-4 py-8">
+      <div className="max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-8 2xl:px-12 py-8">
         <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
           <div>
             <h1 className="font-display text-2xl font-semibold text-ink">Compare products</h1>
@@ -157,7 +159,7 @@ export default function ComparePage() {
                         >
                           ✕
                         </button>
-                        <Link href={`/products/${p._id}`} className="block">
+                        <Link href={productPath(p)} className="block">
                           <div className="relative aspect-square rounded-lg overflow-hidden bg-cream-alt mb-3">
                             {p.images?.[0] && (
                               <SmartImage src={p.images[0]} alt={p.name} sizes="220px" className="object-contain" />
@@ -192,7 +194,7 @@ export default function ComparePage() {
                       <td key={p._id} className="p-4 border-l border-line">
                         {variants ? (
                           <Link
-                            href={`/products/${p._id}`}
+                            href={productPath(p)}
                             className="block text-center bg-indigo-950 hover:bg-indigo-900 text-white font-bold text-xs py-2.5 rounded-lg"
                           >
                             Select options

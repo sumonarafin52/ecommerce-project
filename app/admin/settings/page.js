@@ -4,41 +4,63 @@
 import Link from "next/link";
 import PageHeader from "@/components/admin/ui/PageHeader";
 import Badge from "@/components/admin/ui/Badge";
+import Icon from "@/components/ui/Icon";
 
 const modules = [
   {
     href: "/admin/settings/general",
     title: "General",
     desc: "Store info, branding, header/footer details & homepage builder",
-    icon: "🏬",
+    icon: "storefront",
     status: "ready",
   },
   {
     href: "/admin/settings/payment",
     title: "Payment Methods",
     desc: "Stripe, PayPal, SSLCommerz, bKash, Nagad, Rocket & more",
-    icon: "💳",
+    icon: "card",
     status: "ready",
   },
   {
     href: "/admin/settings/billing",
     title: "Billing",
     desc: "Business billing info & invoice configuration",
-    icon: "🧾",
+    icon: "receipt",
+    status: "ready",
+  },
+  {
+    href: "/admin/settings/tax",
+    title: "Tax",
+    desc: "Tax zones, rates, and whether your prices include tax",
+    icon: "calculator",
+    status: "ready",
+  },
+  {
+    href: "/admin/settings/notifications",
+    title: "Notifications",
+    desc: "What customers are told, and whether it goes by email or SMS",
+    icon: "bell",
     status: "ready",
   },
   {
     href: "/admin/settings/shipping",
     title: "Shipping",
     desc: "Shipping methods, carriers, zones, rates & order tracking",
-    icon: "🚚",
+    icon: "truck",
     status: "ready",
   },
   {
     href: "/admin/settings/email",
     title: "Email Notifications",
     desc: "SMTP setup for order, payment, shipment & refund emails",
-    icon: "📧",
+    icon: "mail",
+    status: "ready",
+  },
+  {
+    href: "/admin/settings/pages",
+    title: "Store Pages",
+    desc: "About Us, Privacy, Terms, Return & Shipping policies",
+    icon: "page",
     status: "ready",
   },
 ];
@@ -54,7 +76,7 @@ export default function SettingsHome() {
         {modules.map((m) => (
           <Link key={m.href} href={m.href} className="admin-card rounded-xl p-5 flex items-start gap-4">
             <span className="w-11 h-11 rounded-xl bg-accent/10 flex items-center justify-center text-xl shrink-0">
-              {m.icon}
+              <Icon name={m.icon} size={20} />
             </span>
             <div className="min-w-0">
               <div className="flex items-center gap-2 mb-1">

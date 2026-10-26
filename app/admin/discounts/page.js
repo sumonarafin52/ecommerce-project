@@ -6,9 +6,12 @@ import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import usePermissions from "@/lib/usePermissions";
+import Checkbox from "@/components/admin/ui/Checkbox";
+import Button from "@/components/admin/ui/Button";
+import PermissionGate from "@/components/admin/ui/PermissionGate";
+import ErrorState from "@/components/admin/ui/ErrorState";
 
-const inputCls =
-  "bg-primary border border-white/15 rounded-md px-3 py-2 text-sm text-white placeholder-zinc-500 outline-none focus:border-accent transition-colors";
+const inputCls = "admin-input";
 
 const emptyForm = {
   code: "",
@@ -25,7 +28,9 @@ const emptyForm = {
 
 export default function AdminDiscountsPage() {
   const { data: session, status } = useSession();
-  const { can, loading: permLoading } = usePermissions();
+  const { can, loading: permLoading, failed: permFailed, refresh: refreshPermissions } = usePermissions();
+
+  const [loadError, setLoadError] = useState(false);
 
   const [discounts, setDiscounts] = useState([]);
   const [products, setProducts] = useState([]);
@@ -38,17 +43,23 @@ export default function AdminDiscountsPage() {
   const [error, setError] = useState("");
 
   const load = () => {
+    setLoadError(false);
     Promise.all([
       fetch("/api/discounts").then((r) => r.json()),
       fetch("/api/products?limit=100").then((r) => r.json()),
       fetch("/api/users").then((r) => r.json()),
     ])
       .then(([dRes, pRes, uRes]) => {
+        // The discount list is the page; the product and customer lists only
+        // populate the "applies to" pickers. Losing the first is a failure,
+        // losing the others degrades the form but is not worth blanking the
+        // page over.
         if (dRes.success) setDiscounts(dRes.data);
+        else setLoadError(true);
         if (pRes.success) setProducts(pRes.data.products || []);
         if (uRes.success) setUsers(uRes.data);
       })
-      .catch(() => {})
+      .catch(() => setLoadError(true))
       .finally(() => setLoading(false));
   };
 
@@ -145,15 +156,19 @@ export default function AdminDiscountsPage() {
     );
   }
 
-  if (!session || !can("discounts")) {
+  if (!session || permLoading || permFailed || !can("discounts")) {
     return (
-      <div className="bg-primary min-h-screen flex flex-col items-center justify-center gap-4 text-center px-4">
-        <p className="text-xl font-bold text-white">Access denied</p>
-        <Link href="/" className="bg-accent hover:bg-accent/80 text-primary font-bold px-6 py-3 rounded-md transition-colors">
-          Back to home
-        </Link>
-      </div>
+      <PermissionGate
+        perm="discounts"
+        what="discounts"
+        signedIn={!!session}
+        state={{ loading: permLoading, failed: permFailed, can, refresh: refreshPermissions }}
+      />
     );
+  }
+
+  if (loadError) {
+    return <ErrorState what="discounts" onRetry={() => { setLoadError(false); load(); }} />;
   }
 
   return (
@@ -164,12 +179,9 @@ export default function AdminDiscountsPage() {
             Discounts
             <span className="bg-accent/15 text-accent text-xs font-bold px-2.5 py-1 rounded-full">{discounts.length}</span>
           </h1>
-          <button
-            onClick={openCreate}
-            className="bg-accent hover:bg-accent/80 text-primary font-bold px-4 py-2.5 rounded-md text-sm transition-colors shadow-glow"
-          >
+          <Button onClick={openCreate}>
             + Create Discount
-          </button>
+          </Button>
         </div>
 
         {discounts.length === 0 ? (
@@ -325,14 +337,15 @@ export default function AdminDiscountsPage() {
               </div>
             </div>
 
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input type="checkbox" checked={form.active} onChange={(e) => setForm((f) => ({ ...f, active: e.target.checked }))} className="accent-[#f5a623] w-4 h-4" />
-              <span className="text-sm font-bold text-zinc-200">Active (customer ra use korte parbe)</span>
-            </label>
+            <Checkbox
+              checked={form.active}
+              onChange={(on) => setForm((f) => ({ ...f, active: on }))}
+              label="Active (customers can use this code)"
+            />
 
-            <button type="submit" disabled={saving} className="w-full bg-accent hover:bg-accent/80 text-primary font-bold py-3 rounded-md transition-colors disabled:opacity-50">
+            <Button full type="submit" disabled={saving}>
               {saving ? "Saving..." : editingId ? "Save Changes" : "Create Discount"}
-            </button>
+            </Button>
           </form>
         </div>
       )}

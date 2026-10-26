@@ -73,7 +73,16 @@ export async function POST(request) {
       return NextResponse.json({ success: false, message: "Login required" }, { status: 401 });
     }
 
-    const formData = await request.formData();
+    // A request that isn't multipart makes formData() throw, which surfaced
+    // as a 500 and a stack trace in the logs for what is really a malformed
+    // request. The permission check below needs `kind` from the body, so it
+    // can't run first — but the failure can at least be honest.
+    let formData;
+    try {
+      formData = await request.formData();
+    } catch {
+      return NextResponse.json({ success: false, message: "Expected a file upload" }, { status: 400 });
+    }
     const file = formData.get("file") || formData.get("image");
     // callers set kind="digital" for Digital Products uploads (ebooks/zips);
     // everything else (logos, product photos, banners) stays image-only

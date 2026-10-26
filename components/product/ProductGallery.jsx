@@ -61,7 +61,7 @@ export default function ProductGallery({ images, activeIndex, onIndexChange, pro
     <div className="space-y-3">
       <div
         ref={imgRef}
-        className="relative aspect-square bg-cream-alt border border-line rounded-xl overflow-hidden group"
+        className="relative aspect-square bg-cream-white border border-line rounded-r-lg overflow-hidden group"
         onMouseEnter={() => canHover && setZooming(true)}
         onMouseLeave={() => setZooming(false)}
         onMouseMove={handleMouseMove}
@@ -152,7 +152,7 @@ export default function ProductGallery({ images, activeIndex, onIndexChange, pro
                 i === activeIndex ? "border-indigo-900" : "border-line hover:border-indigo-700/50"
               }`}
             >
-              <div className="relative w-full h-full bg-cream-alt">
+              <div className="relative w-full h-full bg-cream-white">
                 <SmartImage
                   src={img}
                   alt={`${productName} ${i + 1}`}

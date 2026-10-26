@@ -16,7 +16,10 @@ const shipmentEventSchema = new mongoose.Schema(
   {
     status: {
       type: String,
-      enum: ["confirmed", "processing", "shipped", "in_transit", "out_for_delivery", "delivered", "failed", "returned"],
+      // "cancelled" covers a courier cancelling the consignment itself, which
+      // is distinct from the order being cancelled — the parcel can be called
+      // back while the order stands.
+      enum: ["confirmed", "processing", "shipped", "in_transit", "out_for_delivery", "delivered", "failed", "returned", "cancelled"],
       required: true,
     },
     note: { type: String, default: "" },
@@ -43,9 +46,16 @@ const fulfillmentSchema = new mongoose.Schema(
     carrier: { type: mongoose.Schema.Types.ObjectId, ref: "ShippingCarrier", default: null },
     method: { type: mongoose.Schema.Types.ObjectId, ref: "ShippingMethod", default: null },
     trackingNumber: { type: String, default: "" },
+    // Set when this parcel was booked through a courier's API, so a later
+    // status fetch can ask about the right consignment. Empty for a tracking
+    // number typed in by hand, which is still the common case.
+    consignmentId: { type: String, default: "" },
+    bookedWith: { type: String, default: "" }, // the carrier adapter id used
+    bookedAt: { type: Date, default: null },
+    lastStatusCheckAt: { type: Date, default: null },
     status: {
       type: String,
-      enum: ["pending", "shipped", "in_transit", "out_for_delivery", "delivered", "failed", "returned"],
+      enum: ["pending", "shipped", "in_transit", "out_for_delivery", "delivered", "failed", "returned", "cancelled"],
       default: "pending",
     },
     estimatedDelivery: { type: Date, default: null },
@@ -71,17 +81,39 @@ const activityEntrySchema = new mongoose.Schema(
   { _id: false }
 );
 
+// Used by the shippingAddress sub-paths below. Declared as a named function
+// so it reads clearly at both call sites.
+function requiredWhenShipping() {
+  return this.requiresShipping !== false;
+}
+
 const orderSchema = new mongoose.Schema(
   {
     orderNumber: { type: String, unique: true },
+    // Whether this order has anything to deliver. Computed server-side from
+    // the products at order creation, never taken from the client. A
+    // digital-only order skips the address requirement, the shipping charge
+    // and the courier/tracking workflow entirely.
+    requiresShipping: { type: Boolean, default: true },
     invoiceNumber: { type: String, default: "" }, // assigned on first invoice view, see lib/invoice.js
-    user: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+    // Optional: guest orders have no account. Exactly one of `user` or
+    // `guestEmail` is always set (enforced in the pre-validate hook below).
+    user: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
+    guestEmail: { type: String, default: "", lowercase: true, trim: true },
+    // lets a guest open their own confirmation page without an account;
+    // random, so one order id can't be used to read another
+    guestAccessToken: { type: String, default: "", select: false },
     items: [orderItemSchema],
     shippingAddress: {
       fullName: { type: String, required: true },
       phone: { type: String, required: true },
-      address: { type: String, required: true },
-      city: { type: String, required: true },
+      // Required only for orders that actually ship. A download-only order
+      // must not be forced to invent a street address — see
+      // lib/shippingRequirement.js and the `requiresShipping` field below.
+      // (`this` here is the order document, since shippingAddress is an
+      // inline nested object rather than a separate sub-schema.)
+      address: { type: String, required: requiredWhenShipping },
+      city: { type: String, required: requiredWhenShipping },
       // Optional — captured by the country/state picker on checkout.
       // "state" holds whatever the selected country calls its
       // state/province/district; kept as free text since names/levels
@@ -90,7 +122,7 @@ const orderSchema = new mongoose.Schema(
       state: { type: String, default: "" },
       postalCode: { type: String, default: "" },
     },
-    paymentMethod: { type: String, enum: ["sslcommerz", "cod"], default: "sslcommerz" },
+    paymentMethod: { type: String, enum: ["sslcommerz", "bkash", "cod"], default: "sslcommerz" },
     paymentStatus: { type: String, enum: ["pending", "paid", "failed", "refunded"], default: "pending" },
     // set only after a server-to-server SSLCommerz validation API check
     // succeeds — an audit trail distinguishing verified payments from the
@@ -101,6 +133,12 @@ const orderSchema = new mongoose.Schema(
     // which transaction to refund.
     bankTranId: { type: String, default: "" },
     sslcommerzValId: { type: String, default: "" },
+    // The provider's own id for this payment attempt (bKash's paymentID,
+    // and whatever its equivalent is for providers added later). Recorded
+    // when the payment is created, so a redirect arriving in the customer's
+    // browser can be matched to an order WITHOUT trusting anything in the
+    // URL — the customer can edit that; they cannot edit this.
+    paymentProviderRef: { type: String, default: "", index: true },
     // Set once an order's reserved inventory has been returned to stock —
     // currently when an online payment fails or is cancelled. Guards against
     // double-restoring the same order's stock, and blocks re-initiating
@@ -124,6 +162,27 @@ const orderSchema = new mongoose.Schema(
     shippingMethodName: { type: String, default: "" }, // snapshot — survives even if the method is edited/deleted later
     discountCode: { type: String, default: "" }, // use howa coupon code
     discountAmount: { type: Number, default: 0 }, // koto taka discount peyeche
+
+    // Tax, worked out server-side at order time and frozen here. Stored as
+    // a snapshot rather than recomputed on display, because rates change and
+    // an old invoice must keep showing the tax that was actually charged.
+    taxTotal: { type: Number, default: 0 },
+    taxLines: {
+      type: [
+        {
+          name: { type: String, default: "" },
+          rate: { type: Number, default: 0 },
+          amount: { type: Number, default: 0 },
+          appliesTo: { type: String, default: "all" },
+          compound: { type: Boolean, default: false },
+        },
+      ],
+      default: [],
+    },
+    taxZoneName: { type: String, default: "" },
+    // Whether taxTotal is already inside totalAmount (inclusive pricing) or
+    // was added on top. Needed to render the invoice correctly years later.
+    pricesIncludeTax: { type: Boolean, default: false },
     shippedAt: { type: Date },
     deliveredAt: { type: Date },
     reviewed: { type: Boolean, default: false },
@@ -188,8 +247,18 @@ orderSchema.index({ paymentStatus: 1, createdAt: -1 });
 // the draft-reuse lookup on checkout (user + pending + method + recency)
 orderSchema.index({ user: 1, paymentStatus: 1, paymentMethod: 1, createdAt: -1 });
 // public order tracking looks orders up by number
-orderSchema.index({ orderNumber: 1 });
+// (no orderNumber index here — `unique: true` on the field already creates
+// one, and declaring it twice made Mongoose warn about a duplicate index on
+// every cold start.)
 // the auto-fulfil sweep that runs on every order list load
 orderSchema.index({ orderStatus: 1, shippedAt: 1 });
+
+// An order must belong to someone: a registered customer or a guest email.
+orderSchema.pre("validate", function (next) {
+  if (!this.user && !this.guestEmail) {
+    return next(new Error("An order needs either a customer account or a guest email"));
+  }
+  next();
+});
 
 export default mongoose.models.Order || mongoose.model("Order", orderSchema);

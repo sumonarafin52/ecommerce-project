@@ -47,6 +47,8 @@ export async function POST(request) {
     }
 
     user.password = await bcrypt.hash(newPassword, 12);
+    // signs out every existing session, including other devices
+    user.passwordChangedAt = new Date();
     await user.save();
 
     return NextResponse.json({ success: true });

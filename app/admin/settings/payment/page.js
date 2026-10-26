@@ -10,6 +10,9 @@ import Toggle from "@/components/admin/ui/Toggle";
 import { Field, Input, Textarea, SaveBar } from "@/components/admin/ui/FormField";
 import usePermissions from "@/lib/usePermissions";
 import { PAYMENT_GATEWAYS, MASK, isGatewayConfigured } from "@/lib/paymentGateways";
+import Button from "@/components/admin/ui/Button";
+import PermissionGate from "@/components/admin/ui/PermissionGate";
+import ErrorState from "@/components/admin/ui/ErrorState";
 
 const REGION_TABS = [
   { key: "bangladesh", label: "Bangladesh" },
@@ -29,6 +32,24 @@ function emptyStateFor(gateway) {
 
 function GatewayCard({ gateway, state, onChange }) {
   const configured = isGatewayConfigured(gateway, state.fields);
+
+  const [testing, setTesting] = useState(false);
+
+  // Saved credentials are what checkout will use, so that is what gets
+  // tested — the admin is told to save first rather than being shown a
+  // result for values that aren't stored yet.
+  const testConnection = async () => {
+    setTesting(true);
+    try {
+      const res = await fetch(`/api/settings/payment/${gateway.id}/test`, { method: "POST" }).then((r) => r.json());
+      if (res.success) toast.success(res.message);
+      else toast.error(res.message || "The gateway didn't accept these credentials.");
+    } catch {
+      toast.error("Couldn't reach the server.");
+    } finally {
+      setTesting(false);
+    }
+  };
 
   const setField = (key, value) => {
     onChange({ ...state, fields: { ...state.fields, [key]: value } });
@@ -122,13 +143,18 @@ function GatewayCard({ gateway, state, onChange }) {
           })}
         </div>
 
-        <div className="flex justify-end">
-          <button
-            onClick={validate}
-            className="text-xs font-bold text-accent hover:underline"
-          >
+        <div className="flex justify-end items-center gap-4">
+          {/* "Validate" only checks the fields are filled in. This one asks
+              the gateway itself, with the credentials as saved, so wrong
+              keys surface here instead of at a customer's checkout. */}
+          {gateway.checkoutLive && (
+            <Button variant="link" className="disabled:opacity-60" onClick={testConnection} disabled={testing}>
+              {testing ? "Testing…" : "Test connection"}
+            </Button>
+          )}
+          <Button variant="link" onClick={validate}>
             Validate configuration
-          </button>
+          </Button>
         </div>
       </div>
     </div>
@@ -136,8 +162,9 @@ function GatewayCard({ gateway, state, onChange }) {
 }
 
 export default function PaymentSettingsPage() {
-  const { can, loading: permLoading } = usePermissions();
+  const { can, loading: permLoading, failed: permFailed, refresh: refreshPermissions } = usePermissions();
   const [tab, setTab] = useState("bangladesh");
+  const [loadError, setLoadError] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
@@ -148,6 +175,7 @@ export default function PaymentSettingsPage() {
   });
 
   const load = () => {
+    setLoadError(false);
     setLoading(true);
     fetch("/api/settings", { cache: "no-store" })
       .then((r) => r.json())
@@ -162,8 +190,9 @@ export default function PaymentSettingsPage() {
           });
           setGateways(next);
           setDirty(false);
-        }
+        } else setLoadError(true);
       })
+      .catch(() => setLoadError(true))
       .finally(() => setLoading(false));
   };
 
@@ -219,13 +248,21 @@ export default function PaymentSettingsPage() {
     );
   }
 
-  if (!can("settings")) {
+  if (permLoading || permFailed || !can("settings")) {
     return (
-      <div className="max-w-2xl mx-auto px-4 py-16 text-center">
-        <p className="text-lg font-bold admin-text-primary">Access denied</p>
-        <p className="text-sm admin-text-muted mt-1">You don&apos;t have permission to manage settings.</p>
-      </div>
+      <PermissionGate
+        perm="settings"
+        what="store settings"
+        state={{ loading: permLoading, failed: permFailed, can, refresh: refreshPermissions }}
+      />
     );
+  }
+
+
+  if (loadError) {
+
+    return <ErrorState what="payment settings" onRetry={() => { setLoadError(false); load(); }} />;
+
   }
 
   const visibleGateways = PAYMENT_GATEWAYS.filter((g) => g.region === tab);

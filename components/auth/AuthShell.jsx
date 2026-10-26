@@ -2,8 +2,11 @@
 "use client";
 
 import Link from "next/link";
+import useStoreSettings from "@/lib/useStoreSettings";
 
 export default function AuthShell({ quote, sub, stats, children }) {
+  // the store's real name (was hardcoded "SumonMart" on every sign-in page)
+  const storeName = useStoreSettings()?.general?.storeName || "";
   return (
     <div className="min-h-screen grid lg:grid-cols-2 bg-cream-white font-body2">
       <div className="hidden lg:flex relative items-center justify-center p-14 bg-gradient-to-br from-indigo-950 to-indigo-700 overflow-hidden">
@@ -31,9 +34,9 @@ export default function AuthShell({ quote, sub, stats, children }) {
         <div className="w-full max-w-[400px]">
           <Link href="/" className="flex items-center gap-2 font-display font-bold text-2xl text-indigo-900 mb-9">
             <span className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-900 to-indigo-700 text-gold flex items-center justify-center text-base font-bold shrink-0">
-              S
+              {(storeName || "S").charAt(0).toUpperCase()}
             </span>
-            SumonMart
+            {storeName || <span className="inline-block w-28 h-6 rounded bg-line/60 animate-pulse" aria-hidden="true" />}
           </Link>
           {children}
         </div>

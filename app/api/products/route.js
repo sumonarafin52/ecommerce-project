@@ -5,7 +5,10 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import connectDB from "@/lib/db";
 import Product from "@/models/Product";
+import { recordMovement } from "@/lib/productStock";
+import { STOCK_REASONS } from "@/models/StockMovement";
 import { hasPermission } from "@/lib/rbac";
+import { resolveSlug } from "@/lib/productSlug";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { searchProducts } from "@/lib/productSearch";
 import { serverError } from "@/lib/apiError";
@@ -70,8 +73,13 @@ export async function POST(request) {
       return NextResponse.json({ success: false, message: "Selling price must be lower than old price" }, { status: 400 });
     }
 
+    // The URL this product will live at. Taken from the name unless staff
+    // typed one, and made unique so two "Ceramic Mug"s don't fight over it.
+    const slug = await resolveSlug({ requested: body.slug, name: body.name });
+
     const product = await Product.create({
       name: body.name.trim(),
+      slug,
       description: body.description || "",
       shortDescription: body.shortDescription || "",
       category: body.category.trim(),
@@ -89,7 +97,28 @@ export async function POST(request) {
       status: ["public", "private", "draft", "unlisted"].includes(body.status) ? body.status : "public",
       options: Array.isArray(body.options) ? body.options : [],
       combinations: Array.isArray(body.combinations) ? body.combinations : [],
+      // The admin form has always sent these two, but neither route wrote
+      // them — so attaching a downloadable file to a product silently did
+      // nothing, and the form's "Customers can download X once they've paid"
+      // note was never true. Validated as an id rather than passed straight
+      // through, so a malformed value fails cleanly instead of casting.
+      digitalProduct: /^[0-9a-fA-F]{24}$/.test(String(body.digitalProduct || "")) ? body.digitalProduct : null,
+      shippingRequirement: ["auto", "always", "never"].includes(body.shippingRequirement)
+        ? body.shippingRequirement
+        : "auto",
     });
+
+    // The opening balance, so a product's history starts where the product
+    // does rather than at its first sale.
+    if (product.stock > 0) {
+      await recordMovement({
+        product: product._id,
+        delta: product.stock,
+        reason: STOCK_REASONS.CREATED,
+        by: { id: session?.user?.id || null, name: session?.user?.name || "Staff" },
+        note: "product created",
+      });
+    }
 
     return NextResponse.json({ success: true, data: product }, { status: 201 });
   } catch (error) {

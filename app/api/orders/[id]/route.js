@@ -1,6 +1,7 @@
 // app/api/orders/[id]/route.js
 export const dynamic = "force-dynamic";
 
+import crypto from "crypto";
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import connectDB from "@/lib/db";
@@ -12,8 +13,18 @@ import { hasPermission } from "@/lib/rbac";
 import { isValidTransition, putOnHold, releaseHold, ORDER_STATUS_LABELS } from "@/lib/orderStatus";
 import { notify } from "@/lib/notify";
 import { adjustStock } from "@/lib/productStock";
+import { STOCK_REASONS } from "@/models/StockMovement";
 import { notifyBackInStock } from "@/lib/inventoryEvents";
+import { createGrantsForOrder } from "@/lib/digitalDelivery";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
+
+// Compares two tokens without leaking their contents through timing.
+function timingSafeEqualStr(a, b) {
+  const bufA = Buffer.from(String(a));
+  const bufB = Buffer.from(String(b));
+  if (bufA.length !== bufB.length) return false;
+  return crypto.timingSafeEqual(bufA, bufB);
+}
 
 function pushActivity(order, type, message, session) {
   order.activity.push({
@@ -28,13 +39,21 @@ export async function GET(request, { params }) {
   try {
     await connectDB();
     const session = await getServerSession(authOptions);
-    if (!session?.user) {
+    // A guest order carries a one-off access token in its confirmation link,
+    // since there's no account to sign into. Anyone else still needs a session.
+    const guestToken = new URL(request.url).searchParams.get("t") || "";
+    if (!session?.user && !guestToken) {
       return NextResponse.json({ success: false, message: "Login required" }, { status: 401 });
     }
 
     const order = await Order.findById(params.id)
+      .select("+guestAccessToken")
       .populate("user", "name email")
-      .populate("fulfillments.carrier", "name logo trackingUrlTemplate phone")
+      // item thumbnails for the confirmation page / order view (images only)
+      .populate("items.product", "images sku")
+      // api.connected (never api.credentials) so the shipment card knows
+      // whether to offer booking for this carrier
+      .populate("fulfillments.carrier", "name logo trackingUrlTemplate phone api.connected api.provider")
       .populate("fulfillments.method", "name estimatedDelivery")
       .populate("shipment.carrier", "name logo trackingUrlTemplate phone")
       .populate("shipment.method", "name estimatedDelivery");
@@ -42,13 +61,18 @@ export async function GET(request, { params }) {
       return NextResponse.json({ success: false, message: "Order not found" }, { status: 404 });
     }
 
-    const isOwner = order.user._id.toString() === session.user.id;
-    const isStaff = await hasPermission(session, "orders");
-    if (!isOwner && !isStaff) {
+    // `order.user` is null on a guest order, so never dereference it blindly
+    const isOwner = !!session?.user && !!order.user && order.user._id.toString() === session.user.id;
+    const isGuestHolder =
+      !!guestToken && !!order.guestAccessToken && timingSafeEqualStr(guestToken, order.guestAccessToken);
+    const isStaff = !!session?.user && (await hasPermission(session, "orders"));
+    if (!isOwner && !isStaff && !isGuestHolder) {
       return NextResponse.json({ success: false, message: "Not authorized" }, { status: 403 });
     }
 
-    return NextResponse.json({ success: true, data: order });
+    const safe = order.toObject();
+    delete safe.guestAccessToken; // never send the access token back out
+    return NextResponse.json({ success: true, data: safe });
   } catch (error) {
     console.error("[orders:get]", error);
     return NextResponse.json({ success: false, message: "Something went wrong" }, { status: 500 });
@@ -69,7 +93,10 @@ export async function PUT(request, { params }) {
     }
 
     const body = await request.json();
-    const isOwner = order.user.toString() === session.user.id;
+    // `order.user` is null on a guest order. Dereferencing it here threw a
+    // 500 for every staff action on a guest order — so a guest's order could
+    // never be marked shipped, fulfilled or anything else.
+    const isOwner = !!order.user && order.user.toString() === session.user.id;
 
     // ===== CUSTOMER: confirm receipt (fulfill) =====
     if (body.confirmReceipt) {
@@ -114,7 +141,12 @@ export async function PUT(request, { params }) {
 
       const reason = typeof body.reason === "string" ? body.reason.trim().slice(0, 300) : "";
       if (!order.stockReleased) {
-        await adjustStock(order.items, 1);
+        await adjustStock(order.items, 1, null, {
+          reason: STOCK_REASONS.CANCELLED,
+          order: order._id,
+          by: { id: session?.user?.id || null, name: session?.user?.name || "Customer" },
+          note: reason,
+        });
         order.stockReleased = true;
         for (const it of order.items) notifyBackInStock(it.product);
       }
@@ -145,6 +177,22 @@ export async function PUT(request, { params }) {
       return NextResponse.json({ success: false, message: "No permission" }, { status: 403 });
     }
 
+    // ===== STAFF: internal note =====
+    // Recorded on the order's activity timeline. Internal only — never shown
+    // to the customer and never emailed.
+    if (typeof body.staffNote === "string") {
+      const note = body.staffNote.trim();
+      if (!note) {
+        return NextResponse.json({ success: false, message: "Note can't be empty" }, { status: 400 });
+      }
+      if (note.length > 1000) {
+        return NextResponse.json({ success: false, message: "Note must be under 1000 characters" }, { status: 400 });
+      }
+      pushActivity(order, "note", note, session);
+      await order.save();
+      return NextResponse.json({ success: true, data: order });
+    }
+
     const { orderStatus, paymentStatus, onHold, holdReason, shippingAddress } = body;
 
     if (orderStatus && orderStatus !== order.orderStatus) {
@@ -161,7 +209,11 @@ export async function PUT(request, { params }) {
       // (see app/api/checkout/route.js), so without this guard cancelling
       // an already-failed order would credit the same units back twice.
       if (orderStatus === "cancelled" && !order.stockReleased) {
-        await adjustStock(order.items, 1);
+        await adjustStock(order.items, 1, null, {
+          reason: STOCK_REASONS.CANCELLED,
+          order: order._id,
+          by: { id: session?.user?.id || null, name: session?.user?.name || "Staff" },
+        });
         order.stockReleased = true;
         // returned stock may satisfy customers waiting on these items
         for (const it of order.items) notifyBackInStock(it.product);
@@ -192,6 +244,8 @@ export async function PUT(request, { params }) {
       if (statusMessages[orderStatus]) {
         await notify({
           user: order.user,
+          guestEmail: order.guestEmail,
+          phone: order.shippingAddress?.phone,
           type: "order_status",
           title: `Order ${ORDER_STATUS_LABELS[orderStatus] || orderStatus}`,
           message: statusMessages[orderStatus],
@@ -235,6 +289,15 @@ export async function PUT(request, { params }) {
     }
 
     await order.save();
+
+    // An admin marking an order paid (bank transfer confirmed, COD collected
+    // on a digital+physical order) has to deliver the digital goods too —
+    // otherwise the customer paid and "My Downloads" stays empty. Idempotent,
+    // so re-saving an already-paid order won't issue a second quota.
+    if (order.paymentStatus === "paid") {
+      await createGrantsForOrder(order);
+    }
+
     return NextResponse.json({ success: true, data: order });
   } catch (error) {
     console.error("[orders:update]", error);
@@ -272,7 +335,12 @@ export async function DELETE(request, { params }) {
     // stockReleased check: a failed online payment already returned this
     // order's stock, so restoring again here would double-credit it.
     if (["pending", "processing", "on_hold"].includes(order.orderStatus) && !order.stockReleased) {
-      await adjustStock(order.items, 1);
+      await adjustStock(order.items, 1, null, {
+        reason: STOCK_REASONS.CANCELLED,
+        order: order._id,
+        by: { id: session?.user?.id || null, name: session?.user?.name || "Staff" },
+        note: "order deleted",
+      });
     }
 
     await Order.findByIdAndDelete(params.id);

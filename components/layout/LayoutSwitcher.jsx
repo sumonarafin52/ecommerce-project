@@ -8,6 +8,8 @@ import Footer from "@/components/layout/Footer";
 import AdminTopHeader from "@/components/layout/AdminTopHeader";
 import AdminFooter from "@/components/layout/AdminFooter";
 import CompareBar from "@/components/product/CompareBar";
+import WhatsAppButton from "@/components/layout/WhatsAppButton";
+import BottomTabBar, { showsTabBar } from "@/components/layout/BottomTabBar";
 
 export default function LayoutSwitcher({ children }) {
   const pathname = usePathname();
@@ -27,7 +29,7 @@ export default function LayoutSwitcher({ children }) {
     return (
       <>
         <AdminTopHeader />
-        <main className="min-h-[calc(100vh-4rem-3.5rem)]">{children}</main>
+        <main className="min-h-[calc(100vh-3.5rem-3.5rem)]">{children}</main>
         <AdminFooter />
       </>
     );
@@ -42,7 +44,11 @@ export default function LayoutSwitcher({ children }) {
       <Header />
       <main className="min-h-screen">{children}</main>
       <CompareBar />
+      <WhatsAppButton />
       <Footer />
+      <BottomTabBar />
+      {/* reserve the tab bar's height so the end of the page isn't hidden under it */}
+      {showsTabBar(pathname) && <div className="md:hidden h-[calc(60px+env(safe-area-inset-bottom))]" aria-hidden="true" />}
     </>
   );
 }

@@ -9,10 +9,23 @@ import { hasPermission } from "@/lib/rbac";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { serverError } from "@/lib/apiError";
 
+// Staff only. This used to be unauthenticated and returned whole documents,
+// which handed anyone the carriers' contact people, internal notes — and,
+// once API integrations landed, the stored credential blob. Every caller is
+// an admin screen, so there was never a reason for it to be public.
 export async function GET() {
   try {
     await connectDB();
-    const carriers = await ShippingCarrier.find().sort({ name: 1 }).lean();
+    const session = await getServerSession(authOptions);
+    if (!session?.user || !(await hasPermission(session, "orders"))) {
+      return NextResponse.json({ success: false, message: "No permission" }, { status: 403 });
+    }
+    // `api.credentials` is excluded outright; the integration screen reads it
+    // through /api/shipping/carriers/[id]/api, which masks the secrets.
+    const carriers = await ShippingCarrier.find()
+      .select("-api.credentials")
+      .sort({ name: 1 })
+      .lean();
     return NextResponse.json({ success: true, data: carriers });
   } catch (error) {
     return serverError(error, "api/shipping/carriers");

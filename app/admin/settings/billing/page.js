@@ -8,6 +8,8 @@ import Tabs from "@/components/admin/ui/Tabs";
 import ImageUploader from "@/components/admin/ui/ImageUploader";
 import { Field, Input, Textarea, SaveBar } from "@/components/admin/ui/FormField";
 import usePermissions from "@/lib/usePermissions";
+import PermissionGate from "@/components/admin/ui/PermissionGate";
+import ErrorState from "@/components/admin/ui/ErrorState";
 
 const TABS = [
   { key: "business", label: "Business Info" },
@@ -18,14 +20,16 @@ const CURRENCIES = ["BDT", "USD", "EUR", "GBP", "INR"];
 const DATE_FORMATS = ["DD MMM YYYY", "MM/DD/YYYY", "YYYY-MM-DD"];
 
 export default function BillingSettingsPage() {
-  const { can, loading: permLoading } = usePermissions();
+  const { can, loading: permLoading, failed: permFailed, refresh: refreshPermissions } = usePermissions();
   const [tab, setTab] = useState("business");
+  const [loadError, setLoadError] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [billing, setBilling] = useState(null);
 
   const load = () => {
+    setLoadError(false);
     setLoading(true);
     fetch("/api/settings", { cache: "no-store" })
       .then((r) => r.json())
@@ -33,8 +37,9 @@ export default function BillingSettingsPage() {
         if (res.success) {
           setBilling(res.data.billing || {});
           setDirty(false);
-        }
+        } else setLoadError(true);
       })
+      .catch(() => setLoadError(true))
       .finally(() => setLoading(false));
   };
 
@@ -65,7 +70,7 @@ export default function BillingSettingsPage() {
     }
   };
 
-  if (permLoading || loading || !billing) {
+  if (!loadError && (permLoading || loading || !billing)) {
     return (
       <div className="flex items-center justify-center min-h-[50vh]">
         <div className="w-10 h-10 border-4 border-accent border-t-transparent rounded-full animate-spin" />
@@ -73,13 +78,21 @@ export default function BillingSettingsPage() {
     );
   }
 
-  if (!can("settings")) {
+  if (permLoading || permFailed || !can("settings")) {
     return (
-      <div className="max-w-2xl mx-auto px-4 py-16 text-center">
-        <p className="text-lg font-bold admin-text-primary">Access denied</p>
-        <p className="text-sm admin-text-muted mt-1">You don&apos;t have permission to manage settings.</p>
-      </div>
+      <PermissionGate
+        perm="settings"
+        what="store settings"
+        state={{ loading: permLoading, failed: permFailed, can, refresh: refreshPermissions }}
+      />
     );
+  }
+
+
+  if (loadError) {
+
+    return <ErrorState what="billing settings" onRetry={() => { setLoadError(false); load(); }} />;
+
   }
 
   return (
@@ -193,7 +206,7 @@ export default function BillingSettingsPage() {
                 <select
                   value={billing.invoice?.dateFormat || "DD MMM YYYY"}
                   onChange={(e) => setInvoice({ dateFormat: e.target.value })}
-                  className="admin-input w-full rounded-lg px-3 py-2.5 text-sm outline-none"
+                  className="admin-input w-full"
                 >
                   {DATE_FORMATS.map((f) => <option key={f} value={f}>{f}</option>)}
                 </select>
@@ -202,7 +215,7 @@ export default function BillingSettingsPage() {
                 <select
                   value={billing.invoice?.currency || "BDT"}
                   onChange={(e) => setInvoice({ currency: e.target.value })}
-                  className="admin-input w-full rounded-lg px-3 py-2.5 text-sm outline-none"
+                  className="admin-input w-full"
                 >
                   {CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
                 </select>

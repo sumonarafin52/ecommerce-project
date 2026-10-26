@@ -79,13 +79,19 @@ body.admin-theme {
   --color-accent: 44 82 130;  /* #2C5282 — indigo-900, same as the storefront's primary CTA color */
   --color-accent-2: 30 58 95; /* #1E3A5F — indigo-950, darker gradient stop */
 
-  --admin-canvas: #FBF5E9;    /* cream-bg */
-  --admin-surface: #FFFFFF;   /* cream-white */
-  --admin-border: #E7DAB9;    /* line */
-  --admin-border-strong: #D2BD87;
-  --admin-text-primary: #2B2318;   /* ink */
-  --admin-text-secondary: #5C5140; /* ink-soft */
-  --admin-text-muted: #8C8168;     /* ink-muted */
+  --admin-canvas: #F1F1F1;    /* Polaris canvas gray */
+  --admin-surface: #FFFFFF;   /* card surface */
+  --admin-border: #E3E3E3;    /* hairline border */
+  --admin-border-strong: #CCCCCC;
+  --admin-text-primary: #303030;   
+  --admin-text-secondary: #616161; 
+  /* Was #8A8A8A, which measures 3.06:1 on white — under the 4.5:1 AA floor
+     for body text, and this token carries every hint, date and secondary
+     line in the admin. #666666 is the same grey, darker, at 5.74:1 on
+     white. Not quoted against white alone: the sidebar sits at #EBEBEB and
+     the hints there are the smallest type in the admin (10–11px), where an
+     intermediate #6B6B6B still measured 4.47:1. On #EBEBEB this is 4.82:1. */
+  --admin-text-muted: #666666;
 
   background: var(--admin-canvas);
   color: var(--admin-text-primary);
@@ -122,17 +128,71 @@ body.admin-theme .admin-text-primary { color: var(--admin-text-primary); }
 body.admin-theme .admin-text-secondary { color: var(--admin-text-secondary); }
 body.admin-theme .admin-text-muted { color: var(--admin-text-muted); }
 body.admin-theme .admin-border { border-color: var(--admin-border); }
-body.admin-theme .admin-input {
+/* The one text control in the admin.
+ *
+ * Measured across 20 admin pages, the same field came in FIFTEEN different
+ * shapes: 37, 38, 40, 41 and 42px tall, 6px and 8px corners, three
+ * backgrounds (white, #F1F1F1, #F7F7F7) and three border colours. Each page
+ * had grown its own `const inputCls = "..."`, copied from whichever page
+ * came before and then drifted. Colour and focus already lived here; the
+ * geometry now does too, so a page writes `admin-input` plus its width and
+ * gets the house field — and a page that wants a different field has to
+ * change this rule, which is the point.
+ *
+ * `.admin-input-sm` is the one deliberate second size, for dense table and
+ * toolbar rows where a 42px control would push the row out of scale. Two
+ * sizes on purpose beats five by accident. */
+body.admin-theme .admin-input,
+body.admin-theme .admin-input-sm {
   background: var(--admin-surface);
   border: 1px solid var(--admin-border-strong);
   color: var(--admin-text-primary);
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  /* A flex child will not shrink below its content: a <select> whose widest
+     option is "Complete Next.js Course — ৳2,500 (stock: 5)" keeps that width
+     even with flex-1 on it, which pushed the whole New Order page 149px wider
+     than a phone screen. A field in a row should give way; this is a no-op
+     anywhere else. */
+  min-width: 0;
 }
-body.admin-theme .admin-input:focus {
+body.admin-theme .admin-input {
+  border-radius: 0.5rem;        /* 8px */
+  padding: 0.625rem 0.75rem;    /* 10px / 12px → 42px tall */
+  font-size: 0.875rem;          /* 14px */
+  line-height: 1.25rem;
+}
+body.admin-theme .admin-input-sm {
+  border-radius: 0.375rem;      /* 6px */
+  padding: 0.375rem 0.625rem;   /* 6px / 10px → 34px tall */
+  font-size: 0.8125rem;         /* 13px */
+  line-height: 1.25rem;
+}
+/* Native widgets size themselves: a date input makes room for its calendar
+   button and a select for its arrow, so the same declarations gave 44px,
+   41px and 42px side by side in one filter row. Pinned here so a row of
+   mixed controls lines up. Textareas keep their natural height. */
+body.admin-theme :is(input, select).admin-input { height: 2.625rem; }   /* 42px */
+body.admin-theme :is(input, select).admin-input-sm { height: 2.125rem; } /* 34px */
+body.admin-theme textarea.admin-input {
+  line-height: 1.5;
+  resize: vertical;
+}
+body.admin-theme .admin-input::placeholder,
+body.admin-theme .admin-input-sm::placeholder {
+  color: var(--admin-text-muted);
+}
+body.admin-theme .admin-input:focus,
+body.admin-theme .admin-input-sm:focus {
   border-color: rgb(var(--color-accent));
   box-shadow: 0 0 0 3px rgb(var(--color-accent) / 0.15);
   background: var(--admin-surface);
   outline: none;
+}
+body.admin-theme .admin-input:disabled,
+body.admin-theme .admin-input-sm:disabled {
+  background: #F1F1F1;
+  color: var(--admin-text-muted);
+  cursor: not-allowed;
 }
 
 /* Brand gradient companion stops — the orange the storefront pairs with
@@ -155,62 +215,141 @@ body.admin-theme .from-orange-50 { --tw-gradient-from: #E9EEF5 !important; }
 body.admin-theme .bg-orange-50,
 body.admin-theme .hover\:bg-orange-50:hover { background-color: #E9EEF5 !important; }
 /* ===== ADMIN PAGES GLOBAL LIGHT OVERRIDE ===== */
-body.admin-theme .bg-primary { background-color: #FBF5E9 !important; }
+body.admin-theme .bg-primary { background-color: #F1F1F1 !important; }
 body.admin-theme .bg-primary-light { background-color: #FFFFFF !important; }
 body.admin-theme .bg-black\/20,
 body.admin-theme .bg-black\/30,
-body.admin-theme .bg-black\/40 { background-color: #F4E9CE !important; }
+body.admin-theme .bg-black\/40 { background-color: #F7F7F7 !important; }
 body.admin-theme .bg-white\/5,
-body.admin-theme .bg-white\/10 { background-color: #F4E9CE !important; }
+body.admin-theme .bg-white\/10 { background-color: #F7F7F7 !important; }
 body.admin-theme .hover\:bg-white\/5:hover,
 body.admin-theme .hover\:bg-white\/10:hover { background-color: #E9EEF5 !important; }
 
-body.admin-theme .text-white { color: #2B2318 !important; }
-body.admin-theme .hover\:text-white:hover { color: #2B2318 !important; }
+body.admin-theme .text-white { color: #303030 !important; }
+body.admin-theme .hover\:text-white:hover { color: #303030 !important; }
+
+/* ...except where the text is sitting on a dark surface ON PURPOSE.
+ *
+ * The rule above exists to convert the admin's old dark theme to light ink,
+ * and it cannot tell the difference between "white text that should now be
+ * dark" and "white text on a navy badge". It was turning both dark, which
+ * measured at 1.66:1 on the sidebar's order-count badge, 1.32:1 on the
+ * top-bar notification count and 2.81:1 on the red BLOCKING chips — text
+ * nobody could read, on exactly the elements meant to catch the eye.
+ *
+ * Two escapes, both EXPLICIT. An earlier attempt matched any element with
+ * a background utility, which is the same kind of guess that caused the
+ * problem: it put white on amber (2.15:1, worse than the dark text it
+ * replaced) and white on the light fills behind .bg-white/10 (1.00:1 —
+ * white on white). So the dark fills are named, and nothing is inferred
+ * from a class containing "bg-":
+ *   - the named dark fills the admin actually uses for chips and buttons
+ *   - .admin-on-dark, for a surface that is dark by construction (chart
+ *     tooltips, and anything else that follows)
+ * Amber, white and the legacy .bg-primary surfaces are deliberately absent:
+ * dark ink is the readable choice on all of them. */
+/* A filled button's label. `.text-primary` was the dark theme's "ink on a
+   bright button" and became dark-on-indigo at 1.66:1 — the Create Order
+   and Save Access buttons could not be read at all. Indigo-600 joins the
+   list for the same reason.
+
+   Gradient-filled buttons were missed the first time round, because a
+   gradient leaves `background-color` transparent and a measurement that
+   only reads background-color scores the text against whatever is behind
+   the button. "✨ Create Category" (from-accent) measured 1.66:1 once the stops
+   were read properly. */
+body.admin-theme :is(.bg-accent, .bg-accent-2, .bg-indigo-600, .bg-indigo-700,
+  .from-accent, .from-accent-2, .from-cyan-700, .from-indigo-600).text-primary,
+body.admin-theme :is(.bg-accent, .bg-accent-2, .bg-rose-600, .bg-red-600, .bg-indigo-600, .bg-indigo-700, .bg-indigo-900, .bg-indigo-950,
+  .from-accent, .from-accent-2, .from-cyan-700, .from-indigo-600).text-white,
+body.admin-theme .admin-on-dark,
+body.admin-theme .admin-on-dark .text-white { color: #FFFFFF !important; }
 body.admin-theme .text-zinc-200,
-body.admin-theme .text-zinc-300 { color: #5C5140 !important; }
-body.admin-theme .text-zinc-400 { color: #8C8168 !important; }
+body.admin-theme .text-zinc-300 { color: #616161 !important; }
+/* These were pale greys ON A DARK BACKGROUND. Mapped onto a light theme
+   they measured 2.04:1 to 3.45:1 — product brands, SKUs, dates, customer
+   emails and "1 sold" lines were all below the readable floor. They now
+   land on the two greys the admin's own tokens already use. */
+body.admin-theme .text-zinc-400 { color: #616161 !important; }
 body.admin-theme .text-zinc-500,
-body.admin-theme .text-zinc-600 { color: #A79A7A !important; }
+body.admin-theme .text-zinc-600 { color: #616161 !important; }
 
 body.admin-theme .border-white\/5,
 body.admin-theme .border-white\/10,
 body.admin-theme .border-white\/15,
-body.admin-theme .border-white\/20 { border-color: #E7DAB9 !important; }
+body.admin-theme .border-white\/20 { border-color: #E3E3E3 !important; }
 body.admin-theme .border-white\/30,
 body.admin-theme .border-white\/40,
 body.admin-theme .hover\:border-white\/30:hover,
-body.admin-theme .hover\:border-white\/40:hover { border-color: #C9A96E !important; }
+body.admin-theme .hover\:border-white\/40:hover { border-color: #B5B5B5 !important; }
 
-body.admin-theme .placeholder-zinc-500::placeholder { color: #A79A7A !important; }
+body.admin-theme .placeholder-zinc-500::placeholder { color: #767676 !important; }
+
+/* ---- status pills ----------------------------------------------------
+ *
+ * Written for the dark theme as "pale text on a dark tint" (bg-green-500/15
+ * text-green-400). On a light surface both halves are pale, so the most
+ * scannable thing in a table — paid / public / pending — measured between
+ * 1.34:1 and 2.14:1. Unreadable, on every list page.
+ *
+ * They are mapped onto the exact pairs components/admin/ui/Badge.jsx
+ * already uses, so a hand-rolled pill and a <Badge> now look like the same
+ * component. New code should use <Badge>; this makes the existing ones
+ * correct without rewriting eight pages of colour maps. */
+body.admin-theme .bg-green-500\/15, body.admin-theme .bg-emerald-500\/15 { background-color: #CDFEE1 !important; }
+body.admin-theme .text-green-400, body.admin-theme .text-emerald-400 { color: #0C5132 !important; }
+
+body.admin-theme .bg-red-500\/15, body.admin-theme .bg-rose-500\/15 { background-color: #FEDAD9 !important; }
+body.admin-theme .text-red-400, body.admin-theme .text-rose-400 { color: #8E0B21 !important; }
+
+body.admin-theme .bg-blue-500\/15, body.admin-theme .bg-sky-500\/15 { background-color: #E0F0FF !important; }
+body.admin-theme .text-blue-400, body.admin-theme .text-sky-400 { color: #00527C !important; }
+
+body.admin-theme .bg-amber-500\/15, body.admin-theme .bg-yellow-500\/15 { background-color: #FFEF9D !important; }
+body.admin-theme .text-amber-400, body.admin-theme .text-yellow-400 { color: #4F4700 !important; }
+
+body.admin-theme .bg-zinc-500\/15 { background-color: #E3E3E3 !important; }
+/* Cyan is the Digital Products section's own accent and had the same pale
+   pair — the download-count chip measured 1.41:1. It joins the info tone. */
+body.admin-theme .bg-cyan-500\/15 { background-color: #E0F0FF !important; }
+body.admin-theme .text-cyan-400 { color: #00527C !important; }
+
+/* `text-rose-500` is 3.67:1 on white and it is every "Delete" link in
+   Settings. Deepened to the red the Badge danger tone already uses, so a
+   danger pill and a danger link are one colour rather than two. */
+body.admin-theme .text-rose-500 { color: #8E0B21 !important; }
 
 /* gradient save-bar light */
-body.admin-theme .from-primary { --tw-gradient-from: #FBF5E9 !important; }
-body.admin-theme .via-primary { --tw-gradient-via: #FBF5E9 !important; }
-body.admin-theme .to-primary\/95 { --tw-gradient-to: rgb(251 245 233 / 0.95) !important; }
+body.admin-theme .from-primary { --tw-gradient-from: #F1F1F1 !important; }
+body.admin-theme .via-primary { --tw-gradient-via: #F1F1F1 !important; }
+body.admin-theme .to-primary\/95 { --tw-gradient-to: rgb(241 241 241 / 0.95) !important; }
 body.admin-theme .ring-offset-primary-light { --tw-ring-offset-color: #FFFFFF !important; }
 
-/* colored box er bhitore text-white WHITE thakbe (icon/badge) */
-body.admin-theme [class*="bg-emerald"] > .text-white,
-body.admin-theme [class*="bg-rose"] > .text-white,
-body.admin-theme [class*="bg-blue"] > .text-white,
-body.admin-theme [class*="bg-violet"] > .text-white,
-body.admin-theme [class*="bg-sky"] > .text-white,
-body.admin-theme [class*="bg-amber"] > .text-white,
-body.admin-theme [class*="bg-pink"] > .text-white,
-body.admin-theme [class*="bg-cyan"] > .text-white,
-body.admin-theme [class*="bg-zinc-500"] > .text-white,
-body.admin-theme [class*="bg-accent"] > .text-white,
-body.admin-theme [class*="from-accent"] > .text-white,
-body.admin-theme [class*="from-orange"] > .text-white,
-body.admin-theme [class*="from-emerald"] > .text-white,
-body.admin-theme [class*="from-cyan"] > .text-white,
-body.admin-theme [class*="from-rose"] > .text-white,
-body.admin-theme [class*="from-purple"] > .text-white,
-body.admin-theme [class*="from-indigo"] > .text-white,
-body.admin-theme [class*="from-blue"] > .text-white,
-body.admin-theme [class*="from-amber"] > .text-white,
-body.admin-theme [class*="from-pink"] > .text-white { color: #ffffff !important; }
+/* White text stays white inside a SOLID coloured box (an icon tile or a
+   badge). The :not() guards matter: these are attribute selectors, so
+   [class*="bg-emerald"] also matches bg-emerald-500/10 — a 10% tint that is
+   nearly white. That is what put a white label on the selected product
+   status card at 2.54:1 contrast, so choosing a status made it unreadable. */
+body.admin-theme [class*="bg-emerald"]:not([class*="/5"]):not([class*="/10"]):not([class*="/20"]) > .text-white,
+body.admin-theme [class*="bg-rose"]:not([class*="/5"]):not([class*="/10"]):not([class*="/20"]) > .text-white,
+body.admin-theme [class*="bg-blue"]:not([class*="/5"]):not([class*="/10"]):not([class*="/20"]) > .text-white,
+body.admin-theme [class*="bg-violet"]:not([class*="/5"]):not([class*="/10"]):not([class*="/20"]) > .text-white,
+body.admin-theme [class*="bg-sky"]:not([class*="/5"]):not([class*="/10"]):not([class*="/20"]) > .text-white,
+body.admin-theme [class*="bg-amber"]:not([class*="/5"]):not([class*="/10"]):not([class*="/20"]) > .text-white,
+body.admin-theme [class*="bg-pink"]:not([class*="/5"]):not([class*="/10"]):not([class*="/20"]) > .text-white,
+body.admin-theme [class*="bg-cyan"]:not([class*="/5"]):not([class*="/10"]):not([class*="/20"]) > .text-white,
+body.admin-theme [class*="bg-zinc-500"]:not([class*="/5"]):not([class*="/10"]):not([class*="/20"]) > .text-white,
+body.admin-theme [class*="bg-accent"]:not([class*="/5"]):not([class*="/10"]):not([class*="/20"]) > .text-white,
+body.admin-theme [class*="from-accent"]:not([class*="/5"]):not([class*="/10"]):not([class*="/20"]) > .text-white,
+body.admin-theme [class*="from-orange"]:not([class*="/5"]):not([class*="/10"]):not([class*="/20"]) > .text-white,
+body.admin-theme [class*="from-emerald"]:not([class*="/5"]):not([class*="/10"]):not([class*="/20"]) > .text-white,
+body.admin-theme [class*="from-cyan"]:not([class*="/5"]):not([class*="/10"]):not([class*="/20"]) > .text-white,
+body.admin-theme [class*="from-rose"]:not([class*="/5"]):not([class*="/10"]):not([class*="/20"]) > .text-white,
+body.admin-theme [class*="from-purple"]:not([class*="/5"]):not([class*="/10"]):not([class*="/20"]) > .text-white,
+body.admin-theme [class*="from-indigo"]:not([class*="/5"]):not([class*="/10"]):not([class*="/20"]) > .text-white,
+body.admin-theme [class*="from-blue"]:not([class*="/5"]):not([class*="/10"]):not([class*="/20"]) > .text-white,
+body.admin-theme [class*="from-amber"]:not([class*="/5"]):not([class*="/10"]):not([class*="/20"]) > .text-white,
+body.admin-theme [class*="from-pink"]:not([class*="/5"]):not([class*="/10"]):not([class*="/20"]) > .text-white { color: #ffffff !important; }
 /* ===================================================================
    PREMIUM POLISH
    Cross-cutting refinements: smoother typography rendering, accessible
@@ -329,3 +468,77 @@ a[class*="bg-indigo"]:active {
   }
   ::-webkit-scrollbar-thumb:hover { background-clip: content-box; background-color: #C9A96E; }
 }
+
+/* ===================================================================
+   APP FEEL (phones)
+   =================================================================== */
+
+/* bottom sheet + backdrop motion */
+@keyframes sm-fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes sm-sheet-up { from { transform: translateY(100%); } to { transform: none; } }
+
+/* No grey flash on tap, and no 300ms double-tap-zoom wait on controls —
+   taps respond instantly, like a native app. */
+html { -webkit-tap-highlight-color: transparent; }
+a, button, [role="button"], input, select, label { touch-action: manipulation; }
+
+/* Long-pressing a tab or button shouldn't start selecting its text. */
+nav a, button { -webkit-user-select: none; user-select: none; }
+
+/* Touch devices get press feedback instead of hover effects. */
+@media (hover: none) {
+  .group:active { transform: scale(0.985); transition: transform 0.12s ease-out; }
+  /* hover-lift on product cards looks "stuck" after a tap on phones */
+  .group.hover\:-translate-y-1:hover { transform: none; }
+}
+
+/* Installed-app mode: no rubber-band bounce revealing the page edge. */
+@media (display-mode: standalone) {
+  html, body { overscroll-behavior-y: none; }
+}
+
+/* Readable long-form text for About/Policy pages */
+.info-prose { color: #4A3F2E; font-size: 15px; line-height: 1.75; }
+.info-prose h2 { font-family: var(--font-fraunces), Georgia, serif; font-size: 1.35rem; font-weight: 600; color: #1E3A5F; margin: 2rem 0 0.75rem; }
+.info-prose h2:first-child { margin-top: 0; }
+.info-prose h3 { font-weight: 700; color: #2B2318; margin: 1.5rem 0 0.5rem; }
+.info-prose p { margin: 0 0 1rem; }
+.info-prose ul, .info-prose ol { margin: 0 0 1.1rem; padding-left: 1.3rem; }
+.info-prose ul { list-style: disc; }
+.info-prose ol { list-style: decimal; }
+.info-prose li { margin: 0.35rem 0; padding-left: 0.2rem; }
+.info-prose li::marker { color: #C98A2B; }
+.info-prose strong { color: #2B2318; font-weight: 700; }
+.info-prose a { color: #2C5282; font-weight: 600; text-decoration: underline; text-underline-offset: 3px; }
+.info-prose a:hover { color: #1E3A5F; }
+
+/* ===================================================================
+   ADMIN — POLARIS REFINEMENTS (Shopify-style)
+   Neutral canvas, dark top bar, gray sidebar with white active pill,
+   white cards, quiet tables. Scoped to body.admin-theme only.
+   =================================================================== */
+body.admin-theme .admin-header { background: #1A1A1A; border-bottom: 0; backdrop-filter: none; }
+body.admin-theme .admin-sidebar { background: #EBEBEB; border-right: 0; }
+
+/* legacy gradient stops that were never remapped — they faded cards into
+   the old dark navy (New Category, Add Product, Digital upload cards) */
+body.admin-theme .from-primary-light { --tw-gradient-from: #FFFFFF !important; }
+body.admin-theme .via-primary-light { --tw-gradient-via: #FFFFFF !important; --tw-gradient-stops: var(--tw-gradient-from), #FFFFFF, var(--tw-gradient-to) !important; }
+body.admin-theme .to-primary-light { --tw-gradient-to: #FFFFFF !important; }
+body.admin-theme .via-primary { --tw-gradient-via: #F1F1F1 !important; }
+body.admin-theme .to-primary { --tw-gradient-to: #F1F1F1 !important; }
+body.admin-theme .text-primary,
+body.admin-theme .hover\:text-primary:hover { color: #303030 !important; }
+
+/* cards: 12px radius, hairline + soft drop, like Polaris */
+body.admin-theme .admin-card { border-radius: 12px; border-color: #E3E3E3; box-shadow: 0 1px 0 rgba(26, 26, 26, 0.07); }
+
+/* index tables: quiet header, hairline rows, subtle hover */
+body.admin-theme table thead th { color: #616161; font-weight: 600; font-size: 12px; letter-spacing: 0; text-transform: none; }
+body.admin-theme table thead tr { background: #F7F7F7; }
+body.admin-theme table tbody tr { border-color: #EBEBEB; }
+body.admin-theme table tbody tr:hover { background: #F7F7F7; }
+
+/* inputs: white, neutral border, crisp focus */
+body.admin-theme .admin-input { border-color: #CCCCCC; border-radius: 8px; }
+body.admin-theme .admin-input::placeholder { color: #A8A8A8; }

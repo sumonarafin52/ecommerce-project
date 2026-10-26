@@ -9,6 +9,29 @@ import Badge from "@/components/admin/ui/Badge";
 import ImageUploader from "@/components/admin/ui/ImageUploader";
 import { Field, Input, Textarea, SaveBar } from "@/components/admin/ui/FormField";
 import usePermissions from "@/lib/usePermissions";
+import Checkbox from "@/components/admin/ui/Checkbox";
+import Button from "@/components/admin/ui/Button";
+import PermissionGate from "@/components/admin/ui/PermissionGate";
+
+// The zones a shop on this platform is actually likely to trade in, rather
+// than all 400-odd IANA names in a dropdown nobody can scroll. Anything
+// else can still be set in the database and is kept if it is.
+const TIMEZONES = [
+  { value: "Asia/Dhaka", label: "Dhaka (BST, UTC+6)" },
+  { value: "Asia/Kolkata", label: "Kolkata (IST, UTC+5:30)" },
+  { value: "Asia/Karachi", label: "Karachi (PKT, UTC+5)" },
+  { value: "Asia/Kathmandu", label: "Kathmandu (UTC+5:45)" },
+  { value: "Asia/Dubai", label: "Dubai (GST, UTC+4)" },
+  { value: "Asia/Singapore", label: "Singapore (UTC+8)" },
+  { value: "Asia/Tokyo", label: "Tokyo (JST, UTC+9)" },
+  { value: "Europe/London", label: "London (GMT/BST)" },
+  { value: "Europe/Berlin", label: "Berlin (CET/CEST)" },
+  { value: "America/New_York", label: "New York (ET)" },
+  { value: "America/Chicago", label: "Chicago (CT)" },
+  { value: "America/Los_Angeles", label: "Los Angeles (PT)" },
+  { value: "Australia/Sydney", label: "Sydney (AET)" },
+  { value: "UTC", label: "UTC" },
+];
 
 const TABS = [
   { key: "store", label: "Store Info" },
@@ -72,13 +95,14 @@ function ReorderButtons({ index, count, onMove }) {
 }
 
 export default function GeneralSettingsPage() {
-  const { can, loading: permLoading } = usePermissions();
+  const { can, loading: permLoading, failed: permFailed, refresh: refreshPermissions } = usePermissions();
   const [tab, setTab] = useState("store");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
 
   const [general, setGeneral] = useState(null);
+  const [checkout, setCheckout] = useState({});
   const [heroSlides, setHeroSlides] = useState([]);
   const [banners, setBanners] = useState([]);
   const [sections, setSections] = useState([]);
@@ -95,6 +119,7 @@ export default function GeneralSettingsPage() {
       .then((res) => {
         if (res.success) {
           setGeneral(res.data.general || {});
+          setCheckout(res.data.checkout || {});
           setHeroSlides(res.data.homepage?.heroSlides || []);
           setBanners(res.data.homepage?.banners || []);
           setSections(res.data.homepage?.sections || []);
@@ -122,12 +147,13 @@ export default function GeneralSettingsPage() {
       const res = await fetch("/api/settings", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ general, homepage: { heroSlides, banners, sections, showDeals, showBestSellers } }),
+        body: JSON.stringify({ general, checkout, homepage: { heroSlides, banners, sections, showDeals, showBestSellers } }),
       }).then((r) => r.json());
       if (res.success) {
         toast.success("Settings saved");
         setDirty(false);
         setGeneral(res.data.general);
+        setCheckout(res.data.checkout || {});
         setHeroSlides(res.data.homepage.heroSlides);
         setBanners(res.data.homepage.banners);
         setSections(res.data.homepage.sections);
@@ -151,12 +177,13 @@ export default function GeneralSettingsPage() {
     );
   }
 
-  if (!can("settings")) {
+  if (permLoading || permFailed || !can("settings")) {
     return (
-      <div className="max-w-2xl mx-auto px-4 py-16 text-center">
-        <p className="text-lg font-bold admin-text-primary">Access denied</p>
-        <p className="text-sm admin-text-muted mt-1">You don&apos;t have permission to manage settings.</p>
-      </div>
+      <PermissionGate
+        perm="settings"
+        what="store settings"
+        state={{ loading: permLoading, failed: permFailed, can, refresh: refreshPermissions }}
+      />
     );
   }
 
@@ -194,8 +221,51 @@ export default function GeneralSettingsPage() {
               <Field label="Store Phone">
                 <Input value={general.storePhone || ""} onChange={(e) => { setGeneral({ ...general, storePhone: e.target.value }); markDirty(); }} />
               </Field>
+              <Field
+                label="Guest checkout"
+                hint="Let shoppers order without creating an account. Guests get their confirmation by email and can track orders with their order number and phone."
+              >
+                <select
+                  className="admin-input w-full"
+                  value={checkout.guestCheckout || "off"}
+                  onChange={(e) => { setCheckout({ ...checkout, guestCheckout: e.target.value }); markDirty(); }}
+                >
+                  <option value="off">Off — everyone must sign in</option>
+                  <option value="cod">Cash on delivery only (recommended)</option>
+                  <option value="all">Any payment method</option>
+                </select>
+              </Field>
+              <Field label="WhatsApp Number" hint="Adds a 'Chat on WhatsApp' button to the store. Include the country code, e.g. 8801XXXXXXXXX. Leave empty to hide it.">
+                <Input
+                  inputMode="tel"
+                  placeholder="8801XXXXXXXXX"
+                  value={general.whatsappNumber || ""}
+                  onChange={(e) => { setGeneral({ ...general, whatsappNumber: e.target.value.replace(/[^\d+ ]/g, "") }); markDirty(); }}
+                />
+              </Field>
               <Field label="Store Address">
                 <Input value={general.storeAddress || ""} onChange={(e) => { setGeneral({ ...general, storeAddress: e.target.value }); markDirty(); }} />
+              </Field>
+              <Field
+                label="Store Timezone"
+                hint="Which day an order belongs to. Reports, the revenue chart and CSV exports all count days on this clock — set it to where you actually trade."
+              >
+                <select
+                  className="admin-input w-full"
+                  value={general.timezone || "Asia/Dhaka"}
+                  onChange={(e) => { setGeneral({ ...general, timezone: e.target.value }); markDirty(); }}
+                >
+                  {TIMEZONES.map((tz) => (
+                    <option key={tz.value} value={tz.value}>
+                      {tz.label}
+                    </option>
+                  ))}
+                  {/* A zone set elsewhere (or by hand) stays selectable
+                      instead of silently switching to the default. */}
+                  {general.timezone && !TIMEZONES.some((t) => t.value === general.timezone) && (
+                    <option value={general.timezone}>{general.timezone}</option>
+                  )}
+                </select>
               </Field>
               <div className="sm:col-span-2">
                 <Field label="Store Description" hint="Used in SEO meta description and About sections.">
@@ -220,7 +290,7 @@ export default function GeneralSettingsPage() {
                   <Textarea rows={3} value={general.footerAbout || ""} onChange={(e) => { setGeneral({ ...general, footerAbout: e.target.value }); markDirty(); }} />
                 </Field>
               </div>
-              <Field label="Footer Copyright Line" hint='e.g. "© 2026 SumonMart — Made in Bangladesh"'>
+              <Field label="Footer Copyright Line" hint="Leave empty to use your store name and the current year">
                 <Input value={general.footerCopyright || ""} onChange={(e) => { setGeneral({ ...general, footerCopyright: e.target.value }); markDirty(); }} />
               </Field>
             </div>
@@ -252,7 +322,7 @@ export default function GeneralSettingsPage() {
             </p>
             <button
               onClick={() => { setHeroSlides([...heroSlides, { _id: uid(), image: "", title: "", subtitle: "", tag: "", buttonText: "Shop Now", buttonLink: "/products", order: heroSlides.length, active: true }]); markDirty(); }}
-              className="shrink-0 bg-accent hover:bg-accent/90 text-white text-xs font-bold px-4 py-2.5 rounded-lg transition-colors"
+              className="shrink-0"
             >
               + Add Slide
             </button>
@@ -271,13 +341,15 @@ export default function GeneralSettingsPage() {
                   {!slide.active && <Badge tone="neutral">Hidden</Badge>}
                 </div>
                 <div className="flex items-center gap-3">
-                  <label className="flex items-center gap-1.5 text-xs font-bold admin-text-secondary cursor-pointer">
-                    <input type="checkbox" checked={slide.active} onChange={(e) => { const next = [...heroSlides]; next[i] = { ...slide, active: e.target.checked }; setHeroSlides(next); markDirty(); }} />
-                    Active
-                  </label>
-                  <button onClick={() => { setHeroSlides(heroSlides.filter((_, idx) => idx !== i)); markDirty(); }} className="text-xs font-bold text-rose-500 hover:underline">
+                  <Checkbox
+                    compact
+                    label="Active"
+                    checked={slide.active}
+                    onChange={(on) => { const next = [...heroSlides]; next[i] = { ...slide, active: on }; setHeroSlides(next); markDirty(); }}
+                  />
+                  <Button variant="link-danger" onClick={() => { setHeroSlides(heroSlides.filter((_, idx) => idx !== i)); markDirty(); }}>
                     Remove
-                  </button>
+                  </Button>
                 </div>
               </div>
               <div className="grid sm:grid-cols-2 gap-4">
@@ -313,7 +385,7 @@ export default function GeneralSettingsPage() {
             <p className="text-xs admin-text-muted max-w-md">Promotional banners you can place on the homepage.</p>
             <button
               onClick={() => { setBanners([...banners, { _id: uid(), image: "", title: "", link: "/products", order: banners.length, active: true }]); markDirty(); }}
-              className="shrink-0 bg-accent hover:bg-accent/90 text-white text-xs font-bold px-4 py-2.5 rounded-lg transition-colors"
+              className="shrink-0"
             >
               + Add Banner
             </button>
@@ -330,13 +402,15 @@ export default function GeneralSettingsPage() {
                   <ReorderButtons index={i} count={banners.length} onMove={(dir) => { setBanners(reorder(banners, i, dir)); markDirty(); }} />
                   <span className="text-xs font-bold admin-text-muted">Banner {i + 1}</span>
                   <div className="flex items-center gap-3 ml-auto">
-                    <label className="flex items-center gap-1.5 text-xs font-bold admin-text-secondary cursor-pointer">
-                      <input type="checkbox" checked={b.active} onChange={(e) => { const next = [...banners]; next[i] = { ...b, active: e.target.checked }; setBanners(next); markDirty(); }} />
-                      Active
-                    </label>
-                    <button onClick={() => { setBanners(banners.filter((_, idx) => idx !== i)); markDirty(); }} className="text-xs font-bold text-rose-500 hover:underline">
+                    <Checkbox
+                      compact
+                      label="Active"
+                      checked={b.active}
+                      onChange={(on) => { const next = [...banners]; next[i] = { ...b, active: on }; setBanners(next); markDirty(); }}
+                    />
+                    <Button variant="link-danger" onClick={() => { setBanners(banners.filter((_, idx) => idx !== i)); markDirty(); }}>
                       Remove
-                    </button>
+                    </Button>
                   </div>
                 </div>
                 <ImageUploader label="Banner Image" value={b.image} onChange={(url) => { const next = [...banners]; next[i] = { ...b, image: url }; setBanners(next); markDirty(); }} />
@@ -359,14 +433,16 @@ export default function GeneralSettingsPage() {
           <div className="admin-card rounded-xl p-5">
             <p className="text-xs font-bold admin-text-muted uppercase tracking-wide mb-3">Built-in blocks</p>
             <div className="flex flex-wrap gap-5">
-              <label className="flex items-center gap-2 text-sm font-semibold admin-text-secondary cursor-pointer">
-                <input type="checkbox" checked={showDeals} onChange={(e) => { setShowDeals(e.target.checked); markDirty(); }} className="w-4 h-4 accent-accent" />
-                Show &quot;Today&apos;s Deals&quot;
-              </label>
-              <label className="flex items-center gap-2 text-sm font-semibold admin-text-secondary cursor-pointer">
-                <input type="checkbox" checked={showBestSellers} onChange={(e) => { setShowBestSellers(e.target.checked); markDirty(); }} className="w-4 h-4 accent-accent" />
-                Show &quot;Best Sellers&quot;
-              </label>
+              <Checkbox
+                label={'Show "Today\'s Deals"'}
+                checked={showDeals}
+                onChange={(on) => { setShowDeals(on); markDirty(); }}
+              />
+              <Checkbox
+                label={'Show "Best Sellers"'}
+                checked={showBestSellers}
+                onChange={(on) => { setShowBestSellers(on); markDirty(); }}
+              />
             </div>
             <p className="text-[11px] admin-text-muted mt-2.5">
               These two always sit in a fixed spot on the homepage (right after the trust badges). For full control over
@@ -380,7 +456,7 @@ export default function GeneralSettingsPage() {
             </p>
             <button
               onClick={() => { setSections([...sections, { _id: uid(), title: "New Section", type: "newArrivals", categoryId: "", productIds: [], maxPrice: 0, buttonText: "See all", buttonLink: "/products", order: sections.length, visible: true }]); markDirty(); }}
-              className="shrink-0 bg-accent hover:bg-accent/90 text-white text-xs font-bold px-4 py-2.5 rounded-lg transition-colors"
+              className="shrink-0"
             >
               + Add Section
             </button>
@@ -398,13 +474,15 @@ export default function GeneralSettingsPage() {
                 <ReorderButtons index={i} count={sections.length} onMove={(dir) => { setSections(reorder(sections, i, dir)); markDirty(); }} />
                 <span className="text-xs font-bold admin-text-muted">Section {i + 1}</span>
                 <div className="flex items-center gap-3 ml-auto">
-                  <label className="flex items-center gap-1.5 text-xs font-bold admin-text-secondary cursor-pointer">
-                    <input type="checkbox" checked={s.visible} onChange={(e) => { const next = [...sections]; next[i] = { ...s, visible: e.target.checked }; setSections(next); markDirty(); }} />
-                    Visible
-                  </label>
-                  <button onClick={() => { setSections(sections.filter((_, idx) => idx !== i)); markDirty(); }} className="text-xs font-bold text-rose-500 hover:underline">
+                  <Checkbox
+                    compact
+                    label="Visible"
+                    checked={s.visible}
+                    onChange={(on) => { const next = [...sections]; next[i] = { ...s, visible: on }; setSections(next); markDirty(); }}
+                  />
+                  <Button variant="link-danger" onClick={() => { setSections(sections.filter((_, idx) => idx !== i)); markDirty(); }}>
                     Remove
-                  </button>
+                  </Button>
                 </div>
               </div>
               <div className="grid sm:grid-cols-2 gap-4">
@@ -415,7 +493,7 @@ export default function GeneralSettingsPage() {
                   <select
                     value={s.type}
                     onChange={(e) => { const next = [...sections]; next[i] = { ...s, type: e.target.value }; setSections(next); markDirty(); }}
-                    className="admin-input w-full rounded-lg px-3 py-2.5 text-sm outline-none"
+                    className="admin-input w-full"
                   >
                     {SECTION_TYPES.map((t) => (
                       <option key={t.value} value={t.value}>{t.label}</option>
@@ -428,7 +506,7 @@ export default function GeneralSettingsPage() {
                     <select
                       value={s.categoryId || ""}
                       onChange={(e) => { const next = [...sections]; next[i] = { ...s, categoryId: e.target.value }; setSections(next); markDirty(); }}
-                      className="admin-input w-full rounded-lg px-3 py-2.5 text-sm outline-none"
+                      className="admin-input w-full"
                     >
                       <option value="">Select a category</option>
                       {categories.map((c) => (
@@ -451,21 +529,21 @@ export default function GeneralSettingsPage() {
                       {products.map((p) => {
                         const checked = (s.productIds || []).includes(p._id);
                         return (
-                          <label key={p._id} className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-gray-50 text-xs cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={checked}
-                              onChange={(e) => {
-                                const ids = new Set(s.productIds || []);
-                                if (e.target.checked) ids.add(p._id); else ids.delete(p._id);
-                                const next = [...sections];
-                                next[i] = { ...s, productIds: Array.from(ids) };
-                                setSections(next);
-                                markDirty();
-                              }}
-                            />
-                            <span className="admin-text-primary font-medium">{p.name}</span>
-                          </label>
+                          <Checkbox
+                            key={p._id}
+                            block
+                            className="px-2 py-1.5 rounded-md hover:bg-gray-50"
+                            label={p.name}
+                            checked={checked}
+                            onChange={(on) => {
+                              const ids = new Set(s.productIds || []);
+                              if (on) ids.add(p._id); else ids.delete(p._id);
+                              const next = [...sections];
+                              next[i] = { ...s, productIds: Array.from(ids) };
+                              setSections(next);
+                              markDirty();
+                            }}
+                          />
                         );
                       })}
                     </div>

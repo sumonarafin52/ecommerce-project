@@ -6,6 +6,7 @@ import Link from "next/link";
 import useCartStore from "@/store/cartStore";
 import useWishlistStore from "@/store/wishlistStore";
 import { formatCurrency, getEffectivePrice, getDiscountPercentage } from "@/lib/utils";
+import { productPath } from "@/lib/slug";
 
 export default function WishlistPanel() {
   const [items, setItems] = useState([]);
@@ -70,7 +71,7 @@ export default function WishlistPanel() {
             return (
               <div key={product._id} className="border border-line rounded-xl overflow-hidden">
                 <div className="relative">
-                  <Link href={`/products/${product._id}`} className="block aspect-square bg-cream-alt">
+                  <Link href={productPath(product)} className="block aspect-square bg-cream-alt">
                     {product.images?.[0] && <img src={product.images[0]} alt={product.name} className="w-full h-full object-cover" />}
                   </Link>
                   <button
@@ -87,7 +88,7 @@ export default function WishlistPanel() {
                   )}
                 </div>
                 <div className="p-3">
-                  <Link href={`/products/${product._id}`} className="text-[13.5px] font-semibold text-ink line-clamp-2 hover:text-indigo-900">
+                  <Link href={productPath(product)} className="text-[13.5px] font-semibold text-ink line-clamp-2 hover:text-indigo-900">
                     {product.name}
                   </Link>
                   <div className="flex items-baseline gap-1.5 mt-1.5">

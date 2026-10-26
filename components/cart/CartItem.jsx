@@ -4,6 +4,7 @@
 import Link from "next/link";
 import useCartStore, { cartKeyOf } from "@/store/cartStore";
 import { formatCurrency, getEffectivePrice } from "@/lib/utils";
+import { productPath } from "@/lib/slug";
 
 export default function CartItem({ item }) {
   const updateQuantity = useCartStore((s) => s.updateQuantity);
@@ -15,7 +16,7 @@ export default function CartItem({ item }) {
 
   return (
     <div className="flex gap-4 px-5 py-5 border-b border-line last:border-0">
-      <Link href={`/products/${item._id}`} className="w-[88px] h-[88px] shrink-0 rounded-[10px] overflow-hidden bg-cream-alt">
+      <Link href={productPath(item)} className="w-[88px] h-[88px] shrink-0 rounded-[10px] overflow-hidden bg-cream-alt">
         {item.images?.[0] ? (
           <img src={item.images[0]} alt={item.name} className="w-full h-full object-cover" />
         ) : (
@@ -25,7 +26,7 @@ export default function CartItem({ item }) {
 
       <div className="flex-1 min-w-0">
         <span className="text-[11px] text-ink-muted uppercase tracking-wide font-bold">{item.category}</span>
-        <Link href={`/products/${item._id}`} className="block text-[14.5px] font-semibold text-ink mt-0.5 hover:text-indigo-900 line-clamp-2">
+        <Link href={productPath(item)} className="block text-[14.5px] font-semibold text-ink mt-0.5 hover:text-indigo-900 line-clamp-2">
           {item.name}
         </Link>
         {item.stock <= 5 && item.stock > 0 && (

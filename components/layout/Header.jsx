@@ -8,6 +8,10 @@ import { useSession, signOut } from "next-auth/react";
 import useCartStore, { cartKeyOf } from "@/store/cartStore";
 import useWishlistStore from "@/store/wishlistStore";
 import { formatCurrency, getEffectivePrice } from "@/lib/utils";
+import { fetchStoreSettings } from "@/lib/useStoreSettings";
+import { useLanguage } from "@/components/LanguageProvider";
+import { productPath } from "@/lib/slug";
+import Icon from "@/components/ui/Icon";
 
 const translations = {
   en: {
@@ -76,7 +80,9 @@ export default function Header() {
   const cartTotal = useCartStore((s) => s.getTotalPrice());
   const removeCartItem = useCartStore((s) => s.removeItem);
 
-  const [lang, setLang] = useState("en");
+  // shared with the rest of the storefront (was local to this component,
+  // so switching language changed only the header)
+  const { lang, setLang } = useLanguage();
   const [country, setCountry] = useState("");
   const [query, setQuery] = useState("");
   const [suggestions, setSuggestions] = useState(null); // null = not fetched yet for this query
@@ -88,12 +94,11 @@ export default function Header() {
   // store branding — falls back to the original hardcoded name/no-logo look
   // until Settings → General is configured, so nothing changes visually
   // for stores that haven't set a custom name/logo yet
-  const [brand, setBrand] = useState({ storeName: "SumonMart", storeLogo: "", headerAnnouncement: "", storeEmail: "", storePhone: "" });
+  const [brand, setBrand] = useState({ storeName: "", storeLogo: "", headerAnnouncement: "", storeEmail: "", storePhone: "" });
 
   const t = translations[lang];
 
   useEffect(() => {
-    setLang(localStorage.getItem("sm_lang") || "en");
     try {
       setRecentSearches(JSON.parse(localStorage.getItem("sm_searches") || "[]"));
     } catch {}
@@ -101,14 +106,14 @@ export default function Header() {
     // service on every page load — and still guessed wrong (it announced
     // "Delivering to United States"). The customer now picks their own area.
     setCountry(localStorage.getItem("sm_delivery_city") || "");
-    fetch("/api/categories")
+    fetch("/api/categories?scope=storefront", { cache: "no-store" })
       .then((r) => r.json())
       .then((res) => {
         if (res.success) setCategories(res.data);
       })
       .catch(() => {});
-    fetch("/api/settings", { cache: "no-store" })
-      .then((r) => r.json())
+    fetchStoreSettings()
+      .then((data) => ({ success: !!data, data })) // shared, one request per page
       .then((res) => {
         if (res.success && res.data.general?.storeName) {
           setBrand({
@@ -162,8 +167,7 @@ export default function Header() {
   }, [query]);
 
   const switchLang = (code) => {
-    setLang(code);
-    localStorage.setItem("sm_lang", code);
+    setLang(code); // the provider persists it
     setOpenMenu(null);
   };
 
@@ -242,7 +246,7 @@ export default function Header() {
                 type="button"
                 onMouseDown={() => {
                   setShowDropdown(false);
-                  router.push(`/products/${p._id}`);
+                  router.push(productPath(p));
                 }}
                 className="w-full text-left px-2 py-2 text-sm rounded hover:bg-cream-alt flex items-center gap-3"
               >
@@ -262,7 +266,7 @@ export default function Header() {
   const renderSearchForm = () => (
     <form
       onSubmit={submitSearch}
-      className="flex h-[46px] border-2 border-indigo-900 rounded-full overflow-hidden bg-cream-white focus-within:shadow-[0_0_0_3px_rgba(44,82,130,0.12)] transition-shadow"
+      className="flex h-[42px] md:h-[46px] border-2 border-indigo-900 rounded-full overflow-hidden bg-cream-white focus-within:shadow-[0_0_0_3px_rgba(44,82,130,0.12)] transition-shadow"
     >
       <input
         value={query}
@@ -286,7 +290,11 @@ export default function Header() {
   const itemCls = "block px-3 py-2 text-sm text-ink-soft rounded-md hover:bg-cream-alt hover:text-indigo-900";
 
   return (
-    <div className="font-body2">
+    // Sticky on phones (an app-style top bar). It must be THIS wrapper that
+    // sticks: position:sticky only works within its parent, and the parent
+    // of <header> is this div, which is exactly the header's height — so a
+    // sticky <header> had nowhere to move and scrolled away regardless.
+    <div className="font-body2 sticky top-0 z-40 md:static">
       {openMenu && <div className="fixed inset-0 z-40" onClick={() => setOpenMenu(null)} />}
 
       {brand.headerAnnouncement && (
@@ -296,8 +304,8 @@ export default function Header() {
       )}
 
       {/* Row 1 — logo, search, delivery, language, cart, account */}
-      <header className="bg-cream-white border-b border-line">
-        <div className="max-w-7xl mx-auto px-4 relative z-50 flex items-center gap-3 sm:gap-5 h-[68px] sm:h-[78px]">
+      <header className="bg-cream-white border-b border-line pt-[env(safe-area-inset-top)] md:pt-0">
+        <div className="max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-8 2xl:px-12 relative z-50 flex items-center gap-3 sm:gap-5 h-[56px] sm:h-[78px]">
           <Link href="/" className="flex items-center gap-2 font-display font-bold text-xl sm:text-2xl text-indigo-900 shrink-0 min-w-0 mr-auto md:mr-0">
             {brand.storeLogo ? (
               <img src={brand.storeLogo} alt={brand.storeName} className="h-9 w-auto object-contain" />
@@ -434,7 +442,7 @@ export default function Header() {
           )}
 
           <div
-            className="relative shrink-0"
+            className="relative shrink-0 hidden md:block"
             onMouseEnter={() => setOpenMenu("cart")}
             onMouseLeave={() => setOpenMenu((m) => (m === "cart" ? null : m))}
           >
@@ -510,7 +518,7 @@ export default function Header() {
           </div>
 
           <div
-            className="relative shrink-0"
+            className="relative shrink-0 hidden md:block"
             onMouseEnter={() => setOpenMenu("account")}
             onMouseLeave={() => setOpenMenu((m) => (m === "account" ? null : m))}
           >
@@ -555,14 +563,14 @@ export default function Header() {
         {/* Mobile-only search row — the header row above hides the search
             box below md; without this, phones would have no way to search
             the store at all. */}
-        <div className="md:hidden px-4 pb-3 relative">
+        <div className="md:hidden px-4 pb-2.5 relative">
           {renderSearchForm()}
           {showDropdown && searchDropdown}
         </div>
 
         {/* Row 2 — category nav */}
-        <nav className="bg-cream-white border-t border-line">
-          <div className="max-w-7xl mx-auto px-4 relative z-40 flex items-center gap-6 h-[52px] overflow-x-auto whitespace-nowrap text-[13.5px]">
+        <nav className="hidden md:block bg-cream-white border-t border-line">
+          <div className="max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-8 2xl:px-12 relative z-40 flex items-center gap-6 h-[52px] overflow-x-auto whitespace-nowrap text-[13.5px]">
             <div className="relative shrink-0">
               <button onClick={() => toggle("categories")} className="flex items-center gap-2 font-bold text-ink hover:text-indigo-900">
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
@@ -587,16 +595,28 @@ export default function Header() {
               )}
             </div>
 
-            {categories.slice(0, 6).map((c) => (
+            {categories.slice(0, 10).map((c) => (
               <Link key={c._id} href={`/products?category=${encodeURIComponent(c.name)}`} className="text-ink-soft hover:text-indigo-900 shrink-0">
                 {c.name}
               </Link>
             ))}
 
+            {/* Shortcuts that are always useful — and keep the bar from
+                looking empty in a store with only a couple of categories. */}
+            {categories.length < 6 && (
+              <>
+                {categories.length > 0 && <span className="w-px h-4 bg-line shrink-0" aria-hidden="true" />}
+                <Link href="/products?sort=new" className="text-ink-soft hover:text-indigo-900 shrink-0">{t.newArrivals}</Link>
+                <Link href="/products?sort=top" className="text-ink-soft hover:text-indigo-900 shrink-0">{t.bestSellers}</Link>
+                <Link href="/products" className="text-ink-soft hover:text-indigo-900 shrink-0">{t.allProducts}</Link>
+              </>
+            )}
+
             <div className="flex-1" />
 
             <Link href="/products?deals=1" className="flex items-center gap-1.5 font-bold text-gold-dark shrink-0">
-              🏷️ {t.deals}
+              <Icon name="tag" size={15} />
+              {t.deals}
             </Link>
             <div className="relative shrink-0">
               <button onClick={() => toggle("service")} className="text-ink-soft hover:text-indigo-900 font-semibold">

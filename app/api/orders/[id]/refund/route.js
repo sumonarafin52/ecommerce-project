@@ -5,61 +5,26 @@ import connectDB from "@/lib/db";
 import Order from "@/models/Order";
 import { hasPermission } from "@/lib/rbac";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
-import { SslCommerzPayment, getSslcommerzCredentials } from "@/lib/sslcommerz";
+import { getPaymentAdapter, getProviderCredentials } from "@/lib/payments";
 import { rateLimit } from "@/lib/rateLimit";
 import { notify } from "@/lib/notify";
+import { formatCurrency } from "@/lib/utils";
 
-// Attempts a real SSLCommerz refund. Returns { possible: false } (not a
-// thrown error) if automation genuinely isn't possible for this order — the
-// caller falls back to a manual record in that case, with the reason
-// surfaced to staff rather than silently pretending the gateway was called.
+// Refunds go through the provider's adapter, so this route doesn't know or
+// care which gateway took the payment. The adapter answers `possible: false`
+// — not an error — when automation genuinely isn't available for this order,
+// and the caller then records a manual refund with the real reason shown to
+// staff rather than pretending the gateway was called.
 async function attemptGatewayRefund(order, amount, reason) {
-  if (order.paymentMethod !== "sslcommerz") {
-    return { possible: false, note: "This order wasn't paid via SSLCommerz — no gateway to call." };
-  }
-  if (!order.bankTranId) {
+  const adapter = getPaymentAdapter(order.paymentMethod);
+  if (!adapter || !adapter.capabilities?.refunds) {
     return {
       possible: false,
-      note: "No bank transaction id on file for this order (payment may predate this feature, or wasn't verified) — refund must be issued manually via the SSLCommerz merchant panel.",
+      note: `There's no refund integration for "${order.paymentMethod}" — record the refund here and issue it from that provider directly.`,
     };
   }
-
-  const { storeId, storePass, isLive } = await getSslcommerzCredentials();
-  if (!storeId || !storePass) {
-    return { possible: false, note: "SSLCommerz isn't configured (Settings → Payment Methods) — cannot call the refund API." };
-  }
-
-  try {
-    const sslcz = new SslCommerzPayment(storeId, storePass, isLive);
-    const result = await sslcz.initiateRefund({
-      refund_amount: amount,
-      refund_remarks: reason || "Refund issued via admin panel",
-      bank_tran_id: order.bankTranId,
-      refe_id: order._id.toString(),
-    });
-
-    // SSLCommerz's refund API responds with APIConnect: "DONE" once the
-    // refund request itself was accepted (settlement is asynchronous after
-    // that — refund_ref_id is what refundQuery can later poll).
-    if (result?.APIConnect === "DONE" && result?.refund_ref_id) {
-      return {
-        possible: true,
-        success: true,
-        status: "gateway_pending",
-        refundRefId: result.refund_ref_id,
-        message: result.errorReason || "Refund initiated with SSLCommerz — settlement is processed by the gateway.",
-      };
-    }
-
-    return {
-      possible: true,
-      success: false,
-      status: "gateway_failed",
-      message: result?.errorReason || result?.APIConnect || "SSLCommerz rejected the refund request.",
-    };
-  } catch (err) {
-    return { possible: true, success: false, status: "gateway_failed", message: err.message || "SSLCommerz refund API call failed." };
-  }
+  const credentials = await getProviderCredentials(order.paymentMethod);
+  return adapter.refund({ order, amount, reason, credentials });
 }
 
 export async function POST(request, { params }) {
@@ -154,9 +119,11 @@ export async function POST(request, { params }) {
 
     await notify({
       user: order.user,
+      guestEmail: order.guestEmail,
+      phone: order.shippingAddress?.phone,
       type: "refund",
       title: "Refund issued",
-      message: `A refund of ${refundAmount} has been issued for order #${order.orderNumber}.`,
+      message: `A refund of ${formatCurrency(refundAmount)} has been issued for order #${order.orderNumber}.`,
       link: "/profile",
     });
 

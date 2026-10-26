@@ -1,7 +1,7 @@
 // app/login/page.js
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { signIn } from "next-auth/react";
@@ -16,6 +16,14 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+
+  useEffect(() => {
+    // arriving here after changing a password (all sessions were revoked)
+    if (new URLSearchParams(window.location.search).get("passwordChanged") === "1") {
+      setNotice("Password changed. Please sign in with your new password.");
+    }
+  }, []);
   const [loading, setLoading] = useState(false);
 
   const submit = async (e) => {
@@ -41,17 +49,22 @@ export default function LoginPage() {
 
   return (
     <AuthShell
-      quote={`"Ordered in the evening, at my door by morning."`}
-      sub="Join shoppers using SumonMart for fast, secure delivery across Bangladesh, backed by verified local sellers."
+      quote="Welcome back."
+      sub="Sign in to check out faster, track your orders and keep your wishlist on every device."
       stats={[
-        { value: "4.7★", label: "App rating" },
+        { value: "1-tap", label: "reorder" },
         { value: "64", label: "districts covered" },
       ]}
     >
       <h1 className="font-display text-[27px] font-semibold text-ink mb-1.5">Welcome back</h1>
       <p className="text-sm text-ink-muted mb-7">Sign in to track orders, save favorites and check out faster.</p>
 
-      {error && (
+      {notice && (
+          <p className="text-sm font-semibold text-green-800 bg-green-50 border border-green-200 rounded-lg px-4 py-3 mb-4">
+            {notice}
+          </p>
+        )}
+        {error && (
         <p className="text-sm font-semibold text-brick bg-brick/10 border border-brick/30 rounded-lg px-4 py-3 mb-4">
           {error}
         </p>
@@ -92,7 +105,7 @@ export default function LoginPage() {
       </form>
 
       <p className="text-center text-[13.5px] text-ink-soft mt-6">
-        New to SumonMart?{" "}
+        New here?{" "}
         <Link href="/register" className="font-bold text-indigo-900 hover:underline">
           Create an account
         </Link>

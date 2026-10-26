@@ -3,8 +3,11 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import useCartStore, { cartKeyOf } from "@/store/cartStore";
+import { useCartSync } from "@/lib/useCartSync";
+import CartChangeNotice from "@/components/cart/CartChangeNotice";
 import { formatCurrency, getEffectivePrice } from "@/lib/utils";
 import CountryStateSelect from "@/components/checkout/CountryStateSelect";
 
@@ -15,10 +18,14 @@ const labelCls = "block text-[12px] font-bold text-ink-soft mb-1.5";
 const PAYMENT_METHOD_COPY = {
   cod: { title: "Cash on Delivery", desc: "Pay when your order arrives", icon: "💵" },
   sslcommerz: { title: "Card / Mobile Banking", desc: "bKash, Nagad, VISA, Mastercard or banking — via SSLCommerz", icon: "💳" },
+  bkash: { title: "bKash", desc: "Pay directly from your bKash wallet", icon: "📱" },
 };
 
 export default function CheckoutPage() {
+  const router = useRouter();
   const { data: session, status } = useSession();
+  const [guestMode, setGuestMode] = useState(null); // null until settings load
+  const [guestEmail, setGuestEmail] = useState("");
   const items = useCartStore((s) => s.items);
   const clearCart = useCartStore((s) => s.clearCart);
 
@@ -36,7 +43,15 @@ export default function CheckoutPage() {
   const [method, setMethod] = useState("");
   const [error, setError] = useState("");
   const [placing, setPlacing] = useState(false);
-  const [placed, setPlaced] = useState(false);
+
+  // The cart is checked against the shop before any money is committed.
+  // Renamed on the way in because `checking` here already belongs to the
+  // coupon box.
+  const {
+    checking: syncing,
+    notices: cartNotices,
+    dismiss: dismissCartNotices,
+  } = useCartSync();
 
   const [codeInput, setCodeInput] = useState("");
   const [applied, setApplied] = useState(null);
@@ -44,6 +59,13 @@ export default function CheckoutPage() {
   const [checking, setChecking] = useState(false);
 
   const [shippingOptions, setShippingOptions] = useState([]);
+  // Whether this cart has anything to deliver. Comes from /api/shipping/quote
+  // (which decides it from the products), never from the cart items — a
+  // download-only basket should not ask for an address or a courier.
+  const [requiresShipping, setRequiresShipping] = useState(true);
+  // Tax preview. The server recomputes it when the order is placed, so this
+  // is purely so the customer isn't surprised by the invoice.
+  const [taxQuote, setTaxQuote] = useState(null);
   const [shippingZone, setShippingZone] = useState(null);
   const [shippingLoading, setShippingLoading] = useState(false);
   const [shippingMethodId, setShippingMethodId] = useState("");
@@ -56,6 +78,13 @@ export default function CheckoutPage() {
 
   // load which payment methods are actually enabled (Settings → Payment Methods)
   const [settingsLoadFailed, setSettingsLoadFailed] = useState(false);
+  useEffect(() => {
+    fetch("/api/settings", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((res) => setGuestMode(res.success ? res.data.checkout?.guestCheckout || "off" : "off"))
+      .catch(() => setGuestMode("off"));
+  }, []);
+
 
   useEffect(() => {
     fetch("/api/settings", { cache: "no-store" })
@@ -143,7 +172,10 @@ export default function CheckoutPage() {
   const afterDiscount = Math.max(0, baseTotal - previewDiscount);
   const selectedShipping = shippingOptions.find((m) => m._id === shippingMethodId);
   const shippingCost = selectedShipping?.cost || 0;
-  const finalTotal = afterDiscount + shippingCost;
+  // taxToAdd is zero under inclusive pricing — the tax is already inside
+  // the prices, so adding it would double-charge.
+  const taxToAdd = taxQuote?.taxToAdd || 0;
+  const finalTotal = afterDiscount + shippingCost + taxToAdd;
 
   const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
 
@@ -157,7 +189,15 @@ export default function CheckoutPage() {
   // fetch real shipping options for the entered city whenever it changes
   // (debounced) — this is what actually connects Settings → Shipping to checkout
   useEffect(() => {
-    if (!form.city.trim() || items.length === 0) {
+    if (items.length === 0) {
+      setShippingOptions([]);
+      setShippingZone(null);
+      return;
+    }
+    // A city is only needed to price delivery. For a cart that might be
+    // download-only we still ask the server, since only it can tell us
+    // whether delivery applies at all.
+    if (!form.city.trim() && requiresShipping && shippingOptions.length) {
       setShippingOptions([]);
       setShippingZone(null);
       return;
@@ -177,6 +217,7 @@ export default function CheckoutPage() {
         .then((r) => r.json())
         .then((res) => {
           if (res.success) {
+            setRequiresShipping(res.data.requiresShipping !== false);
             setShippingZone(res.data.zone);
             setShippingOptions(res.data.methods);
             // keep selection if still valid, else default to the cheapest option
@@ -192,6 +233,33 @@ export default function CheckoutPage() {
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form.city, afterDiscount, method, items.length]);
+
+  // Tax preview, debounced the same way. Priced entirely from the server —
+  // this page sends ids, quantities and the address, never an amount.
+  useEffect(() => {
+    if (items.length === 0) {
+      setTaxQuote(null);
+      return;
+    }
+    const t = setTimeout(() => {
+      fetch("/api/tax/quote", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          items: items.map((i) => ({ product: i._id, quantity: i.quantity })),
+          country: form.country,
+          state: form.state,
+          shippingCost,
+          discountAmount: previewDiscount,
+        }),
+      })
+        .then((r) => r.json())
+        .then((res) => setTaxQuote(res.success && res.data.enabled ? res.data : null))
+        .catch(() => setTaxQuote(null));
+    }, 500);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items.length, form.country, form.state, shippingCost, previewDiscount]);
 
   const applyCoupon = async () => {
     if (!codeInput.trim()) return;
@@ -215,19 +283,28 @@ export default function CheckoutPage() {
   const placeOrder = async (e) => {
     e.preventDefault();
     setError("");
-    if (!form.fullName || !form.phone || !form.address || !form.city) {
-      setError("Please fill in all shipping fields.");
+    if (!form.fullName || !form.phone) {
+      setError("Please enter your name and phone number.");
       return;
     }
-    if (!form.country || !form.state) {
-      setError("Please select your country and state/district.");
-      return;
+    // Address and location only matter when something is being delivered.
+    // The server applies the same rule, so this is purely to avoid asking
+    // for fields that will be ignored.
+    if (requiresShipping) {
+      if (!form.address || !form.city) {
+        setError("Please fill in all shipping fields.");
+        return;
+      }
+      if (!form.country || !form.state) {
+        setError("Please select your country and state/district.");
+        return;
+      }
     }
     if (!method) {
       setError("No payment method is available. Please contact support.");
       return;
     }
-    if (shippingOptions.length > 0 && !shippingMethodId) {
+    if (requiresShipping && shippingOptions.length > 0 && !shippingMethodId) {
       setError("Please select a shipping method.");
       return;
     }
@@ -237,6 +314,8 @@ export default function CheckoutPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          // guests identify themselves by email instead of an account
+          ...(session ? {} : { guestEmail }),
           items: items.map((i) => ({ product: i._id, quantity: i.quantity, combinationKey: i.combinationKey || undefined })),
           shippingAddress: {
             fullName: form.fullName,
@@ -255,6 +334,9 @@ export default function CheckoutPage() {
 
       if (!orderRes.success) throw new Error(orderRes.message);
       const orderId = orderRes.data._id;
+      // A guest has no account to sign into, so their confirmation link must
+      // carry the access token the order was created with.
+      const guestToken = !session && orderRes.data.guestAccessToken ? `?t=${orderRes.data.guestAccessToken}` : "";
 
       // fire-and-forget: saving the address for next time should never
       // block or fail the actual checkout
@@ -276,15 +358,24 @@ export default function CheckoutPage() {
 
       if (method === "cod") {
         clearCart();
-        setPlaced(true);
-        setPlacing(false);
+        // a real, refreshable confirmation page with the order number —
+        // replaces the old in-place message that vanished on refresh
+        router.push(`/order-confirmation/${orderId}${guestToken}`);
         return;
       }
 
-      const payRes = await fetch("/api/checkout", {
+      // Which gateway this payment belongs to. Without it the callback
+      // would be verified against whichever provider the route defaults to.
+      const payRes = await fetch(`/api/checkout?provider=${encodeURIComponent(method)}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ orderId }),
+        // A guest has no session, so they prove the order is theirs with the
+        // access token it was issued with — without this they could create an
+        // online-payment order and then never be allowed to pay for it.
+        body: JSON.stringify({
+          orderId,
+          ...(session ? {} : { guestToken: orderRes.data.guestAccessToken || "" }),
+        }),
       }).then((r) => r.json());
 
       if (!payRes.success || !payRes.data?.url) {
@@ -311,43 +402,20 @@ export default function CheckoutPage() {
     );
   }
 
-  if (!session) {
+  // Guests may check out only if the store has enabled it
+  // (Settings → Checkout). Otherwise they're asked to sign in, as before.
+  if (!session && guestMode === "off") {
     return (
       <div className="bg-cream-bg min-h-screen flex flex-col items-center justify-center gap-4 text-center px-4 font-body2">
         <p className="text-xl font-bold text-ink">Login required</p>
         <p className="text-sm text-ink-muted">Please sign in to place your order.</p>
-        <Link href="/login" className="bg-gold hover:bg-gold-dark text-indigo-950 font-bold px-6 py-3 rounded-lg transition-colors">
+        <Link href={`/login?callbackUrl=${encodeURIComponent("/checkout")}`} className="bg-gold hover:bg-gold-dark text-indigo-950 font-bold px-6 py-3 rounded-lg transition-colors">
           Sign in
         </Link>
       </div>
     );
   }
 
-  if (placed) {
-    return (
-      <div className="bg-cream-bg min-h-screen flex items-center justify-center px-4 font-body2">
-        <div className="max-w-md w-full bg-cream-white border border-line rounded-xl p-8 text-center space-y-4">
-          <div className="w-16 h-16 mx-auto rounded-full bg-green-100 border border-green-300 flex items-center justify-center">
-            <svg className="w-8 h-8 text-green-700" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-            </svg>
-          </div>
-          <h1 className="font-display text-2xl font-bold text-ink">Order Placed Successfully!</h1>
-          <p className="text-sm text-ink-muted">
-            Dhonnobad! Apnar order confirm hoyeche. Product receive korar somoy payment korun (Cash on Delivery).
-          </p>
-          <div className="flex gap-3 pt-2">
-            <Link href="/profile" className="flex-1 bg-indigo-900 hover:bg-indigo-950 text-white font-bold py-3 rounded-lg transition-colors text-sm">
-              View My Orders
-            </Link>
-            <Link href="/products" className="flex-1 border-[1.5px] border-line text-ink-soft hover:border-indigo-700 hover:text-indigo-900 font-bold py-3 rounded-lg transition-colors text-sm">
-              Continue Shopping
-            </Link>
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   if (items.length === 0) {
     return (
@@ -388,10 +456,15 @@ export default function CheckoutPage() {
             <div className="bg-cream-white border border-line rounded-xl p-5 space-y-4">
               <h2 className="text-[15px] font-bold text-ink flex items-center gap-2">
                 <span className="w-1 h-5 bg-indigo-900 rounded-full" />
-                Shipping Address
+                {requiresShipping ? "Shipping Address" : "Your Details"}
               </h2>
+              {!requiresShipping && (
+                <p className="text-xs text-ink-soft">
+                  There&apos;s nothing to deliver, so we only need a name and a number for your receipt.
+                </p>
+              )}
 
-              {savedAddresses.length > 0 && (
+              {requiresShipping && savedAddresses.length > 0 && (
                 <div className="grid sm:grid-cols-2 gap-2">
                   {savedAddresses.map((addr) => (
                     <button
@@ -427,6 +500,25 @@ export default function CheckoutPage() {
                 <div>
                   <label className={labelCls}>Full name</label>
                   <input className={inputCls} placeholder="Full name" value={form.fullName} onChange={set("fullName")} />
+                  {!session && (
+                    <div className="sm:col-span-2">
+                      <input
+                        className={inputCls}
+                        type="email"
+                        required
+                        placeholder="Email address — we'll send your order confirmation here"
+                        value={guestEmail}
+                        onChange={(e) => setGuestEmail(e.target.value)}
+                      />
+                      <p className="text-[11.5px] text-ink-muted mt-1.5">
+                        Ordering as a guest.{" "}
+                        <Link href={`/login?callbackUrl=${encodeURIComponent("/checkout")}`} className="font-bold text-indigo-900 hover:underline">
+                          Sign in
+                        </Link>{" "}
+                        to track orders and request returns from your account.
+                      </p>
+                    </div>
+                  )}
                 </div>
                 <div>
                   <label className={labelCls}>Phone number</label>
@@ -434,33 +526,44 @@ export default function CheckoutPage() {
                 </div>
               </div>
 
-              <div>
-                <label className={labelCls}>Address</label>
-                <input className={inputCls} placeholder="House, road, area" value={form.address} onChange={set("address")} />
-              </div>
+              {/* Address, country/district, city and postal code exist only
+                  to deliver something. Asking a customer buying a download to
+                  fill them in — right next to "Delivery: not needed" — was
+                  contradictory, and the server ignores them for these orders
+                  anyway. */}
+              {requiresShipping && (
+                <>
+                  <div>
+                    <label className={labelCls}>Address</label>
+                    <input className={inputCls} placeholder="House, road, area" value={form.address} onChange={set("address")} />
+                  </div>
 
-              <div className="grid sm:grid-cols-2 gap-3">
-                <CountryStateSelect
-                  country={form.countryCode || form.country}
-                  state={form.state}
-                  onChange={handleLocationChange}
-                  selectClassName={inputCls}
-                  labelClassName={labelCls}
-                />
-              </div>
+                  <div className="grid sm:grid-cols-2 gap-3">
+                    <CountryStateSelect
+                      country={form.countryCode || form.country}
+                      state={form.state}
+                      onChange={handleLocationChange}
+                      selectClassName={inputCls}
+                      labelClassName={labelCls}
+                    />
+                  </div>
 
-              <div className="grid sm:grid-cols-2 gap-3">
-                <div>
-                  <label className={labelCls}>City</label>
-                  <input className={inputCls} placeholder="City / Area" value={form.city} onChange={set("city")} />
-                </div>
-                <div>
-                  <label className={labelCls}>Postal code <span className="text-ink-muted font-normal">(optional)</span></label>
-                  <input className={inputCls} placeholder="Postal / ZIP code" value={form.postalCode} onChange={set("postalCode")} />
-                </div>
-              </div>
+                  <div className="grid sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className={labelCls}>City</label>
+                      <input className={inputCls} placeholder="City / Area" value={form.city} onChange={set("city")} />
+                    </div>
+                    <div>
+                      <label className={labelCls}>
+                        Postal code <span className="text-ink-muted font-normal">(optional)</span>
+                      </label>
+                      <input className={inputCls} placeholder="Postal / ZIP code" value={form.postalCode} onChange={set("postalCode")} />
+                    </div>
+                  </div>
+                </>
+              )}
 
-              {!selectedAddressId && (
+              {requiresShipping && !selectedAddressId && (
                 <label className="flex items-center gap-2 text-[13px] text-ink-soft font-semibold cursor-pointer">
                   <input
                     type="checkbox"
@@ -473,7 +576,21 @@ export default function CheckoutPage() {
               )}
             </div>
 
-            {form.city.trim() && (
+            {/* Nothing to deliver: say so plainly instead of showing an
+                empty courier list, which read like a configuration error. */}
+            {!requiresShipping && (
+              <div className="bg-cream-white border border-line rounded-xl p-5">
+                <h2 className="text-[15px] font-bold text-ink flex items-center gap-2">
+                  <span className="w-1 h-5 bg-indigo-900 rounded-full" />
+                  Delivery
+                </h2>
+                <p className="mt-2 text-xs text-ink-soft">
+                  No delivery needed — your download links are ready as soon as payment is confirmed.
+                </p>
+              </div>
+            )}
+
+            {requiresShipping && form.city.trim() && (
               <div className="bg-cream-white border border-line rounded-xl p-5 space-y-3">
                 <h2 className="text-[15px] font-bold text-ink flex items-center gap-2">
                   <span className="w-1 h-5 bg-indigo-900 rounded-full" />
@@ -482,7 +599,10 @@ export default function CheckoutPage() {
                 {shippingLoading ? (
                   <p className="text-xs text-ink-muted">Checking delivery options...</p>
                 ) : shippingOptions.length === 0 ? (
-                  <p className="text-xs text-ink-muted">No delivery methods are configured for this area yet.</p>
+                  <p className="text-xs text-ink-muted">
+                    We don&apos;t have a delivery option for this area yet. Please check your city, or contact us and
+                    we&apos;ll arrange it.
+                  </p>
                 ) : (
                   <div className="space-y-2">
                     {shippingOptions.map((opt) => (
@@ -553,7 +673,10 @@ export default function CheckoutPage() {
             )}
           </form>
 
-          <div className="bg-cream-white border border-line rounded-xl p-5 space-y-3 lg:sticky lg:top-24">
+          <div className="lg:sticky lg:top-24 space-y-0">
+            <CartChangeNotice notices={cartNotices} onDismiss={dismissCartNotices} />
+
+          <div className="bg-cream-white border border-line rounded-xl p-5 space-y-3">
             <h2 className="text-[15px] font-bold text-ink">Order Summary</h2>
 
             {/* coupon box */}
@@ -617,27 +740,82 @@ export default function CheckoutPage() {
                 </div>
               )}
               <div className="flex justify-between text-sm text-ink-soft">
-                <span>Delivery{selectedShipping ? ` (${selectedShipping.name})` : ""}</span>
+                <span>
+                  {requiresShipping ? `Delivery${selectedShipping ? ` (${selectedShipping.name})` : ""}` : "Delivery"}
+                </span>
+                {/* "Free" used to show before a city was even entered, which
+                    promised free delivery the store hadn't quoted yet. */}
                 <span className={shippingCost > 0 ? "text-ink font-bold" : "text-green-700 font-bold"}>
-                  {form.city.trim() ? (shippingCost > 0 ? formatCurrency(shippingCost) : "Free") : "Enter city"}
+                  {!requiresShipping
+                    ? "Not needed"
+                    : !form.city.trim()
+                      ? "Enter city"
+                      : shippingOptions.length === 0
+                        ? "—"
+                        : shippingCost > 0
+                          ? formatCurrency(shippingCost)
+                          : "Free"}
                 </span>
               </div>
+
+              {/* Tax, itemised. Under inclusive pricing it's shown as part of
+                  the total rather than an addition, so the customer can see
+                  what they're paying without the number moving. */}
+              {taxQuote?.taxLines?.map((t, i) => (
+                <div key={i} className="flex justify-between text-[13px] text-ink-soft">
+                  <span>
+                    {t.name} ({t.rate}%)
+                    {taxQuote.pricesIncludeTax && <span className="text-ink-muted"> — included</span>}
+                  </span>
+                  <span className={taxQuote.pricesIncludeTax ? "text-ink-muted" : "text-ink font-bold"}>
+                    {formatCurrency(t.amount)}
+                  </span>
+                </div>
+              ))}
             </div>
             <div className="border-t border-line pt-3 flex justify-between items-center">
               <span className="font-bold text-ink">Total</span>
               <span className="font-display text-xl font-bold text-indigo-900">{formatCurrency(finalTotal)}</span>
             </div>
 
+            {/* With no payment method available this used to stay enabled and
+                still promise "You will be redirected to SSLCommerz" — a
+                redirect that could never happen. The button now reflects what
+                can actually be done. */}
             <button
               onClick={placeOrder}
-              disabled={placing}
-              className="w-full bg-gold hover:bg-gold-dark text-indigo-950 font-bold py-3 rounded-lg transition-colors disabled:opacity-50"
+              // `syncing`: the total on screen is still being checked
+              // against the shop. Committing to it a moment before it
+              // changes is exactly the surprise this is meant to prevent.
+              disabled={placing || !method || syncing}
+              className="w-full bg-gold hover:bg-gold-dark text-indigo-950 font-bold py-3 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {placing ? "Placing order..." : method === "cod" ? "Place Order (COD)" : "Place Order & Pay"}
+              {placing
+                ? "Placing order..."
+                : syncing
+                  ? "Checking prices…"
+                  : !method
+                    ? "Checkout unavailable"
+                    : method === "cod"
+                      ? "Place Order (COD)"
+                      : "Place Order & Pay"}
             </button>
             <p className="text-[11px] text-ink-muted text-center">
-              {method === "cod" ? "Product receive korar somoy cash payment korben." : "You will be redirected to SSLCommerz secure payment page."}
+              {!method ? (
+                <>
+                  No payment method is available right now.{" "}
+                  <Link href="/contact" className="font-bold text-ink underline">
+                    Contact us
+                  </Link>{" "}
+                  and we&apos;ll take your order directly.
+                </>
+              ) : method === "cod" ? (
+                "Pay with cash when your order arrives."
+              ) : (
+                "You will be redirected to the SSLCommerz secure payment page."
+              )}
             </p>
+          </div>
           </div>
         </div>
       </div>

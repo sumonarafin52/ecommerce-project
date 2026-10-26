@@ -1,6 +1,7 @@
 // app/api/orders/route.js
 export const dynamic = "force-dynamic";
 
+import mongoose from "mongoose";
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import connectDB from "@/lib/db";
@@ -9,15 +10,24 @@ import Product from "@/models/Product";
 import User from "@/models/User";
 import Discount from "@/models/Discount";
 import ShippingMethod from "@/models/ShippingMethod";
-import { getEffectivePrice, isValidQuantity } from "@/lib/utils";
+import { getEffectivePrice, isValidQuantity, formatCurrency } from "@/lib/utils";
+import { orderConfirmationBody } from "@/lib/orderEmails";
 import { hasPermission } from "@/lib/rbac";
-import { rateLimit } from "@/lib/rateLimit";
+import crypto from "crypto";
+import { rateLimit, getClientIp } from "@/lib/rateLimit";
+import { validateEmail } from "@/lib/authValidation";
+import Settings from "@/models/Settings";
+import { computeTax, taxLinesFromItems } from "@/lib/tax";
 import { notify } from "@/lib/notify";
 import { atomicDecrement, adjustStock } from "@/lib/productStock";
+import { STOCK_REASONS } from "@/models/StockMovement";
 import { runInTransaction } from "@/lib/dbTransaction";
 import { checkLowStock } from "@/lib/inventoryEvents";
+import { implementedProviders } from "@/lib/payments";
+import { settleCartAfterOrder } from "@/lib/cartReminder";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { serverError } from "@/lib/apiError";
+import { orderRequiresShipping } from "@/lib/shippingRequirement";
 
 const THIRTY_DAYS = 30 * 24 * 60 * 60 * 1000;
 // How recent a pending SSLCommerz order has to be for a fresh checkout to
@@ -82,25 +92,50 @@ export async function GET(request) {
 export async function POST(request) {
   try {
     await connectDB();
+    // parsed up front: the guest checks below need it
+    const body = await request.json();
     const session = await getServerSession(authOptions);
-    if (!session?.user) {
+
+    // ---- guest checkout (off by default; Settings → Checkout) ----
+    const settingsDoc = await Settings.findOne().select("checkout tax").lean();
+    const guestMode = settingsDoc?.checkout?.guestCheckout || "off";
+    const isGuest = !session?.user;
+
+    if (isGuest && guestMode === "off") {
       return NextResponse.json({ success: false, message: "Login required" }, { status: 401 });
     }
 
-    const isAdmin = await hasPermission(session, "orders_update");
+    let guestEmail = "";
+    if (isGuest) {
+      guestEmail = String(body.guestEmail || "").trim().toLowerCase();
+      const emailError = validateEmail(guestEmail);
+      if (emailError) {
+        return NextResponse.json({ success: false, message: emailError }, { status: 400 });
+      }
+      // "cod" mode: guests may not use online payment
+      if (guestMode === "cod" && body.paymentMethod && body.paymentMethod !== "cod") {
+        return NextResponse.json(
+          { success: false, message: "Please sign in to pay online, or choose cash on delivery." },
+          { status: 400 }
+        );
+      }
+    }
+
+    const isAdmin = !isGuest && (await hasPermission(session, "orders_update"));
 
     // Staff creating orders on a customer's behalf get a higher ceiling —
     // ordinary shoppers checking out repeatedly is what this guards against.
-    const limit = await rateLimit(`order-create:${session.user.id}`, { max: isAdmin ? 60 : 15, windowMs: 10 * 60_000 });
+    // Guests have no account, so they're limited per IP instead.
+    const limitKey = isGuest ? `order-create-ip:${getClientIp(request)}` : `order-create:${session.user.id}`;
+    const limit = await rateLimit(limitKey, { max: isAdmin ? 60 : isGuest ? 8 : 15, windowMs: 10 * 60_000 });
     if (!limit.allowed) {
       return NextResponse.json({ success: false, message: "Too many orders placed recently — please wait a few minutes." }, { status: 429 });
     }
 
-    const body = await request.json();
     const { items, shippingAddress, paymentMethod, userId, paymentStatus, discountCode, shippingMethodId } = body;
 
     // ADMIN: customer er jonno order create
-    let targetUserId = session.user.id;
+    let targetUserId = isGuest ? null : session.user.id;
     if (isAdmin && userId) {
       const customer = await User.findById(userId);
       if (!customer) {
@@ -139,7 +174,11 @@ export async function POST(request) {
       }
     }
 
-    if (paymentMethod !== undefined && !["cod", "sslcommerz"].includes(paymentMethod)) {
+    // Taken from the adapter registry rather than a hand-kept list, so a
+    // newly implemented provider cannot be offered at checkout and then
+    // rejected here — which is exactly how a customer ends up with a
+    // "something went wrong" after choosing bKash.
+    if (paymentMethod !== undefined && !["cod", ...implementedProviders()].includes(paymentMethod)) {
       return NextResponse.json({ success: false, message: "Invalid payment method" }, { status: 400 });
     }
     if (discountCode !== undefined && discountCode !== "" && typeof discountCode !== "string") {
@@ -148,6 +187,14 @@ export async function POST(request) {
     if (shippingMethodId !== undefined && shippingMethodId !== "" && !/^[0-9a-fA-F]{24}$/.test(String(shippingMethodId))) {
       return NextResponse.json({ success: false, message: "Invalid shipping method" }, { status: 400 });
     }
+
+    // Does this order ship? Decided here from the products themselves — a
+    // client claiming "no shipping needed" for physical goods would be
+    // claiming free delivery, so the request has no say in it.
+    const requirementProducts = await Product.find({ _id: { $in: items.map((i) => String(i.product)) } })
+      .select("digitalProduct shippingRequirement")
+      .lean();
+    const needsShipping = orderRequiresShipping(requirementProducts);
 
     const address = {
       fullName: shippingAddress?.fullName?.trim(),
@@ -158,7 +205,12 @@ export async function POST(request) {
       state: shippingAddress?.state?.trim() || "",
       postalCode: shippingAddress?.postalCode?.trim() || "",
     };
-    if (!address.fullName || !address.phone || !address.address || !address.city) {
+    // A download-only order still needs a name and a contact number for the
+    // invoice, but not a delivery address.
+    if (!address.fullName || !address.phone) {
+      return NextResponse.json({ success: false, message: "Name and phone number are required" }, { status: 400 });
+    }
+    if (needsShipping && (!address.address || !address.city)) {
       return NextResponse.json({ success: false, message: "Complete shipping address is required" }, { status: 400 });
     }
 
@@ -168,8 +220,8 @@ export async function POST(request) {
     // window (see DRAFT_REUSE_WINDOW_MS) and validated to actually belong
     // to this exact payment flow, so a months-old abandoned pending order
     // is never silently overwritten by an unrelated new checkout.
-    const existing = isAdmin
-      ? null
+    const existing = isAdmin || isGuest
+      ? null // guests have no account to match a previous draft against
       : await Order.findOne({
           user: targetUserId,
           paymentStatus: "pending",
@@ -284,7 +336,7 @@ export async function POST(request) {
       }
       if (d.minAmount > 0 && baseAmount < d.minAmount) {
         return NextResponse.json(
-          { success: false, message: `Minimum order ${d.minAmount}৳ required for this coupon` },
+          { success: false, message: `This coupon needs a minimum order of ${formatCurrency(d.minAmount)}` },
           { status: 400 }
         );
       }
@@ -314,7 +366,9 @@ export async function POST(request) {
     // ===== SHIPPING (server-side, tamper-proof — never trust a client price) =====
     let shippingCost = 0;
     let shippingMethodDoc = null;
-    if (shippingMethodId) {
+    // Nothing to deliver means nothing to charge for delivery — and a
+    // shipping method id sent anyway is ignored rather than honoured.
+    if (shippingMethodId && needsShipping) {
       shippingMethodDoc = await ShippingMethod.findById(shippingMethodId).populate("carrier");
       if (!shippingMethodDoc || !shippingMethodDoc.active) {
         return NextResponse.json({ success: false, message: "Selected shipping method is no longer available" }, { status: 400 });
@@ -334,7 +388,29 @@ export async function POST(request) {
       }
     }
 
-    const totalAmount = totalAmountBeforeShipping + shippingCost;
+    // ===== TAX (server-side; the client never sends a tax figure) =====
+    // Computed on the discounted goods plus shipping, from the zone that
+    // covers this address. With inclusive pricing the tax is already inside
+    // the prices, so `taxToAdd` is zero and the customer pays exactly what
+    // the storefront showed; with exclusive pricing it's added here.
+    // settingsDoc was already loaded above for the guest-checkout rule
+    const taxSettings = settingsDoc?.tax || {};
+    const taxAddress =
+      taxSettings.basedOn === "store"
+        ? { country: taxSettings.storeCountry, state: taxSettings.storeState }
+        : // A download-only order has no delivery address to judge by, so
+          // fall back to where the store is registered.
+          { country: address.country || taxSettings.storeCountry, state: address.state || taxSettings.storeState };
+
+    const tax = await computeTax({
+      lines: taxLinesFromItems(orderItems, requirementProducts),
+      shippingCost,
+      discountAmount,
+      address: taxAddress,
+      taxSettings,
+    });
+
+    const totalAmount = totalAmountBeforeShipping + shippingCost + tax.taxToAdd;
     if (finalPaymentMethod === "sslcommerz" && totalAmount <= 0) {
       return NextResponse.json({ success: false, message: "Order amount must be positive for online payment" }, { status: 400 });
     }
@@ -388,6 +464,13 @@ export async function POST(request) {
       }
       const allKeys = new Set([...oldMap.keys(), ...newMap.keys()]);
 
+      // The order's id, decided before the stock is reserved rather than
+      // when the document is written. Stock moves first — that is what
+      // makes the reservation safe — so without this the ledger rows for
+      // the sale had nothing to point at, and "which order took these
+      // four?" had no answer.
+      const orderId = existing?._id || new mongoose.Types.ObjectId();
+
       const applied = []; // successfully-decremented keys, for rollback on partial failure
       for (const key of allKeys) {
         const delta = (oldMap.get(key) || 0) - (newMap.get(key) || 0);
@@ -397,16 +480,29 @@ export async function POST(request) {
         if (delta > 0) {
           // returning stock (quantity decreased or line removed) — no
           // guard needed, this can't oversell anything
-          await adjustStock([{ product: productId, combinationKey, quantity: delta }], 1, dbSession);
+          await adjustStock([{ product: productId, combinationKey, quantity: delta }], 1, dbSession, {
+            reason: STOCK_REASONS.SALE,
+            order: orderId,
+            note: "quantity reduced on an edited order",
+          });
           applied.push({ product: productId, combinationKey, quantity: delta, sign: 1 });
         } else {
           const need = -delta;
-          const ok = await atomicDecrement(productId, combinationKey || "", need, dbSession);
+          const ok = await atomicDecrement(productId, combinationKey || "", need, dbSession, {
+            reason: STOCK_REASONS.SALE,
+            order: orderId,
+          });
           if (!ok) {
             // roll back everything this request already reserved, and any
             // coupon claim/release, before reporting the conflict
             for (const a of applied.reverse()) {
-              await adjustStock([{ product: a.product, combinationKey: a.combinationKey, quantity: a.quantity }], -a.sign, dbSession);
+              // Rolling back a half-applied reservation. Recorded as a
+              // cancellation so the pair reads as what it was.
+              await adjustStock([{ product: a.product, combinationKey: a.combinationKey, quantity: a.quantity }], -a.sign, dbSession, {
+                reason: STOCK_REASONS.CANCELLED,
+                order: orderId,
+                note: "order could not be completed",
+              });
             }
             if (existing && existing.discountCode !== appliedCode) {
               if (discountDoc) await releaseDiscountUsage(discountDoc.code, dbSession);
@@ -426,7 +522,12 @@ export async function POST(request) {
         existing.baseAmount = baseAmount;
         existing.discountCode = appliedCode;
         existing.discountAmount = discountAmount;
+        existing.requiresShipping = needsShipping;
         existing.shippingCost = shippingCost;
+        existing.taxTotal = tax.taxTotal;
+        existing.taxLines = tax.taxLines;
+        existing.taxZoneName = tax.zoneName;
+        existing.pricesIncludeTax = tax.pricesIncludeTax;
         existing.shippingMethodName = shippingMethodDoc?.name || "";
         existing.totalAmount = totalAmount;
         existing.shippingAddress = address;
@@ -450,10 +551,18 @@ export async function POST(request) {
       const [created] = await Order.create(
         [
           {
+            _id: orderId,
             orderNumber: `ORD-${Date.now().toString(36).toUpperCase()}`,
             user: targetUserId,
+            guestEmail,
+            guestAccessToken: isGuest ? crypto.randomBytes(24).toString("hex") : "",
             items: orderItems,
             shippingAddress: address,
+            requiresShipping: needsShipping,
+            taxTotal: tax.taxTotal,
+            taxLines: tax.taxLines,
+            taxZoneName: tax.zoneName,
+            pricesIncludeTax: tax.pricesIncludeTax,
             paymentMethod: finalPaymentMethod,
             baseAmount,
             discountCode: appliedCode,
@@ -488,14 +597,36 @@ export async function POST(request) {
       checkLowStock(orderItems);
     }
 
+    // The saved basket has now been bought, so it stops being something the
+    // customer could come back to — and if a reminder went out recently,
+    // this is the order that answers whether it worked. Never allowed to
+    // fail the order: it swallows its own errors.
+    if (finalOrder.user) {
+      await settleCartAfterOrder(finalOrder.user, finalOrder._id);
+    }
+
+    const confirmLink = isGuest
+      ? `/order-confirmation/${finalOrder._id}?t=${finalOrder.guestAccessToken}`
+      : `/order-confirmation/${finalOrder._id}`;
+    const confirmMessage = `Thanks! We've received your order #${finalOrder.orderNumber} for ${formatCurrency(totalAmount)}. ${
+      finalPaymentMethod === "cod" ? "Pay on delivery." : "Complete payment to confirm it."
+    }`;
+
+    // One path for both: notify() knows that a guest has no account to show
+    // an in-app notification in, and routes to whichever channels the store
+    // has enabled. The guest branch used to call sendEmail directly, which
+    // meant it quietly skipped SMS and the delivery log.
     await notify({
       user: finalOrder.user,
+      guestEmail: isGuest ? guestEmail : "",
+      phone: finalOrder.shippingAddress?.phone,
       type: "order_status",
-      title: "Order placed",
-      message: `Thanks! We've received your order #${finalOrder.orderNumber} for ${totalAmount}. ${
-        finalPaymentMethod === "cod" ? "Pay on delivery." : "Complete payment to confirm it."
-      }`,
-      link: "/profile",
+      title: `Order ${finalOrder.orderNumber} placed`,
+      message: confirmMessage,
+      // for a guest this carries the access token, since they can't sign in
+      link: confirmLink,
+      linkLabel: "View your order",
+      emailHtml: orderConfirmationBody(finalOrder),
     });
 
     return NextResponse.json({ success: true, data: finalOrder }, { status: existing ? 200 : 201 });

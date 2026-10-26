@@ -3,21 +3,30 @@
 
 import Link from "next/link";
 import useCartStore, { cartKeyOf } from "@/store/cartStore";
+import { useCartSync } from "@/lib/useCartSync";
+import CartChangeNotice from "@/components/cart/CartChangeNotice";
 import CartItem from "@/components/cart/CartItem";
 import RecommendedGrid from "@/components/product/RecommendedGrid";
 import { formatCurrency } from "@/lib/utils";
+import { useT } from "@/components/LanguageProvider";
+import Icon from "@/components/ui/Icon";
 
 export default function CartPage() {
+  const t = useT();
   const items = useCartStore((s) => s.items);
   const subtotal = useCartStore((s) => s.getTotalPrice());
   const itemCount = items.reduce((n, i) => n + i.quantity, 0);
+
+  // A cart lives in localStorage and can be days old. Check it against the
+  // shop before showing a total the shopper might act on.
+  const { checking, notices, dismiss } = useCartSync();
 
   if (items.length === 0) {
     return (
       <div className="bg-cream-bg min-h-screen font-body2">
         <div className="max-w-3xl mx-auto px-4 py-20 text-center">
-          <span className="text-5xl">🛒</span>
-          <h1 className="font-display text-2xl font-semibold text-ink mt-4">Your cart is empty</h1>
+          <Icon name="cart" size={44} strokeWidth={1.2} className="text-ink-muted mx-auto" />
+          <h1 className="font-display text-2xl font-semibold text-ink mt-4">{t("cartEmpty")}</h1>
           <p className="text-sm text-ink-muted mt-2">Looks like you haven&apos;t added anything yet.</p>
           <Link
             href="/products"
@@ -32,7 +41,7 @@ export default function CartPage() {
 
   return (
     <div className="bg-cream-bg min-h-screen font-body2">
-      <div className="max-w-7xl mx-auto px-4 py-6">
+      <div className="max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-8 2xl:px-12 py-6">
         <nav className="text-[13px] text-ink-muted flex items-center gap-2 mb-4">
           <Link href="/" className="hover:text-indigo-900">Home</Link>
           <span>›</span>
@@ -40,8 +49,15 @@ export default function CartPage() {
         </nav>
 
         <h1 className="font-display text-2xl font-semibold text-ink mb-5">
-          Shopping Cart <span className="text-ink-muted text-base font-normal">({itemCount} item{itemCount === 1 ? "" : "s"})</span>
+          {t("yourCart")} <span className="text-ink-muted text-base font-normal">({itemCount} {itemCount === 1 ? t("item") : t("items")})</span>
         </h1>
+
+        {checking && (
+          <p className="text-[12px] text-ink-muted mb-3" role="status">
+            Checking prices and availability…
+          </p>
+        )}
+        <CartChangeNotice notices={notices} onDismiss={dismiss} />
 
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-7 pb-14">
           {/* items */}
@@ -57,7 +73,7 @@ export default function CartPage() {
 
             <div className="space-y-2 text-[13.5px]">
               <div className="flex justify-between text-ink-soft">
-                <span>Subtotal ({itemCount} item{itemCount === 1 ? "" : "s"})</span>
+                <span>{t("subtotal")} ({itemCount} {itemCount === 1 ? t("item") : t("items")})</span>
                 <span className="font-semibold text-ink">{formatCurrency(subtotal)}</span>
               </div>
               <div className="flex justify-between text-ink-soft">
@@ -75,10 +91,10 @@ export default function CartPage() {
               href="/checkout"
               className="block text-center bg-gold hover:bg-gold-dark text-indigo-950 font-bold py-3 rounded-lg transition-colors"
             >
-              Proceed to Checkout
+              {t("checkout")}
             </Link>
             <Link href="/products" className="block text-center text-[13px] font-bold text-indigo-900 hover:underline">
-              ← Continue Shopping
+              ← {t("continueShopping")}
             </Link>
 
             <div className="border-t border-line pt-4 flex items-center gap-2 text-[12px] text-ink-muted">
@@ -90,11 +106,31 @@ export default function CartPage() {
           </aside>
         </div>
 
+        {/* Seeded from the basket itself rather than from browsing history:
+            at the cart, what somebody is about to buy says far more about
+            what else they need than what they glanced at earlier. The
+            component supplies its own heading, which names the real reason
+            these were picked. */}
         <div className="pb-14">
-          <h2 className="font-display text-xl font-semibold text-ink mb-4">You might also like</h2>
-          <RecommendedGrid />
+          <RecommendedGrid seedIds={items.map((i) => i._id)} />
         </div>
       </div>
+
+      {/* Phones: checkout always one tap away, sitting just above the tab
+          bar — otherwise the button is below every cart item. */}
+      <div className="md:hidden fixed inset-x-0 bottom-[calc(60px+env(safe-area-inset-bottom))] z-30 bg-cream-white/95 backdrop-blur-md border-t border-line px-4 py-3 flex items-center gap-3 shadow-[0_-4px_16px_rgba(30,58,95,0.08)]">
+        <div className="min-w-0">
+          <p className="text-[11px] text-ink-muted leading-none">{itemCount} {itemCount === 1 ? t("item") : t("items")}</p>
+          <p className="font-display text-lg font-bold text-indigo-900 leading-tight mt-0.5">{formatCurrency(subtotal)}</p>
+        </div>
+        <Link
+          href="/checkout"
+          className="flex-1 text-center bg-gold hover:bg-gold-dark text-indigo-950 font-bold py-3 rounded-xl text-sm transition-colors"
+        >
+          {t("checkout")} →
+        </Link>
+      </div>
+      <div className="md:hidden h-[68px]" aria-hidden="true" />
     </div>
   );
 }

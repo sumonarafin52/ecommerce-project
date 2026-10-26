@@ -2,12 +2,13 @@
 // Shared status badge. `tone` picks a semantic color family — keep these
 // consistent everywhere instead of inventing new color combos per page.
 const TONES = {
-  neutral: "bg-gray-100 text-gray-700",
-  success: "bg-emerald-100 text-emerald-700",
-  warning: "bg-amber-100 text-amber-700",
-  danger: "bg-rose-100 text-rose-700",
-  info: "bg-blue-100 text-blue-700",
-  accent: "bg-accent/10 text-accent",
+  // Polaris badge palette — soft fills, dark readable text
+  neutral: "bg-[#E3E3E3] text-[#616161]",
+  success: "bg-[#CDFEE1] text-[#0C5132]",
+  warning: "bg-[#FFEF9D] text-[#4F4700]",
+  danger: "bg-[#FEDAD9] text-[#8E0B21]",
+  info: "bg-[#E0F0FF] text-[#00527C]",
+  accent: "bg-[#EAF4FF] text-[#2C5282]",
 };
 
 export default function Badge({ children, tone = "neutral", className = "" }) {

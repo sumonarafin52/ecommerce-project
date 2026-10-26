@@ -6,6 +6,7 @@ import { getServerSession } from "next-auth";
 import bcrypt from "bcryptjs";
 import connectDB from "@/lib/db";
 import User from "@/models/User";
+import Order from "@/models/Order";
 import { rateLimit, getClientIp } from "@/lib/rateLimit";
 import { hasPermission } from "@/lib/rbac";
 import { validateName, validateEmail, validatePassword } from "@/lib/authValidation";
@@ -82,9 +83,57 @@ export async function GET() {
     const users = await User.find()
       .select("name email role createdAt")
       .sort({ createdAt: -1 })
-      .limit(200);
+      .limit(200)
+      .lean();
 
-    return NextResponse.json({ success: true, data: users });
+    // Order count and lifetime spend per customer, aggregated in the
+    // database over ALL their orders.
+    //
+    // The customers page used to work these out in the browser from
+    // /api/orders — which returns only the newest 100 orders. On a store
+    // with 5,000 orders that meant 392 of 400 customers with real purchase
+    // history were shown as having never ordered, and their lifetime value
+    // as zero. The page is for judging customers by exactly those numbers.
+    //
+    // Cancelled and returned orders are excluded from spend: money that
+    // came back is not revenue from that customer.
+    const ids = users.map((u) => u._id);
+    const stats = ids.length
+      ? await Order.aggregate([
+          { $match: { user: { $in: ids } } },
+          {
+            $group: {
+              _id: "$user",
+              orderCount: { $sum: 1 },
+              spent: {
+                $sum: {
+                  $cond: [
+                    { $in: ["$orderStatus", ["cancelled", "returned"]] },
+                    0,
+                    { $subtract: ["$totalAmount", { $ifNull: ["$refund.amount", 0] }] },
+                  ],
+                },
+              },
+              lastOrderAt: { $max: "$createdAt" },
+            },
+          },
+        ])
+      : [];
+
+    const byUser = new Map(stats.map((s) => [String(s._id), s]));
+
+    return NextResponse.json({
+      success: true,
+      data: users.map((u) => {
+        const s = byUser.get(String(u._id));
+        return {
+          ...u,
+          orderCount: s?.orderCount || 0,
+          spent: Math.max(0, Math.round(s?.spent || 0)),
+          lastOrderAt: s?.lastOrderAt || null,
+        };
+      }),
+    });
   } catch (error) {
     return serverError(error, "api/users");
   }

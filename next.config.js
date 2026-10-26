@@ -1,5 +1,14 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // The SSLCommerz SDK is CommonJS and does not survive being bundled and
+  // minified into a server route — the minified build threw
+  // "i is not a function" the moment a payment was started, while `next dev`
+  // (which doesn't minify the same way) worked fine, so this only ever broke
+  // in production. Keeping it external makes Next require() it at runtime,
+  // exactly as plain Node does.
+  experimental: {
+    serverComponentsExternalPackages: ["sslcommerz-lts"],
+  },
   images: {
     remotePatterns: [
       {

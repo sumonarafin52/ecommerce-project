@@ -1,4 +1,9 @@
 // app/api/account/route.js
+// Session-scoped, so it can never be prerendered — saying so here keeps
+// it out of the static build attempt (which logged a "Dynamic server
+// usage" error on every build) and matches every other route.
+export const dynamic = "force-dynamic";
+
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import connectDB from "@/lib/db";

@@ -18,7 +18,7 @@ export async function GET(request) {
     const status = new URL(request.url).searchParams.get("status");
     const query = ["pending", "published", "hidden"].includes(status) ? { status } : {};
     const questions = await ProductQuestion.find(query)
-      .populate("product", "name images")
+      .populate("product", "name slug images")
       .populate("user", "name email")
       .sort({ createdAt: -1 })
       .limit(200)

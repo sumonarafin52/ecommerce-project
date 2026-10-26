@@ -22,7 +22,8 @@ export default function CompareBar() {
 
   return (
     <div
-      className={`fixed z-40 left-1/2 -translate-x-1/2 bottom-4 animate-fade-up ${onProductPage ? "hidden md:flex" : "flex"}`}
+      // phones: sit above the bottom tab bar
+      className={`fixed z-40 left-1/2 -translate-x-1/2 bottom-[calc(72px+env(safe-area-inset-bottom))] md:bottom-4 animate-fade-up ${onProductPage ? "hidden md:flex" : "flex"}`}
     >
       <div className="flex items-center gap-3 bg-indigo-950 text-white rounded-full shadow-premium pl-5 pr-2 py-2">
         <span className="text-sm font-semibold whitespace-nowrap">

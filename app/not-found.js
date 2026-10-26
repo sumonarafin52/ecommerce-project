@@ -3,7 +3,11 @@ import Link from "next/link";
 
 export default function NotFound() {
   return (
-    <div className="bg-cream-bg min-h-[70vh] flex items-center justify-center px-4 font-body2">
+    // min-h-screen, not 70vh: <main> is min-h-screen, so a shorter block
+    // left a band of the dark page background showing between this and the
+    // footer. Every other storefront page uses min-h-screen for the same
+    // reason.
+    <div className="bg-cream-bg min-h-screen flex items-center justify-center px-4 font-body2">
       <div className="text-center max-w-md">
         <p className="font-display text-6xl font-bold text-indigo-900/20">404</p>
         <h1 className="font-display text-2xl font-semibold text-ink mt-2">We couldn&apos;t find that page</h1>

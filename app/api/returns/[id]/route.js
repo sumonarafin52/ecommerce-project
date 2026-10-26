@@ -8,6 +8,7 @@ import Order from "@/models/Order";
 import ReturnRequest, { RETURN_TRANSITIONS } from "@/models/ReturnRequest";
 import { hasPermission } from "@/lib/rbac";
 import { adjustStock } from "@/lib/productStock";
+import { STOCK_REASONS } from "@/models/StockMovement";
 import { notifyBackInStock } from "@/lib/inventoryEvents";
 import { notify } from "@/lib/notify";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
@@ -48,7 +49,11 @@ export async function PUT(request, { params }) {
       // approval, when they're still with the customer. stockRestored makes
       // this idempotent even if "received" were ever applied twice.
       if (status === "received" && !ret.stockRestored) {
-        await adjustStock(ret.items, 1);
+        await adjustStock(ret.items, 1, null, {
+          reason: STOCK_REASONS.RETURNED,
+          order: ret.order?._id || ret.order || null,
+          by: { id: session?.user?.id || null, name: session?.user?.name || "Staff" },
+        });
         ret.stockRestored = true;
         for (const it of ret.items) notifyBackInStock(it.product);
       }

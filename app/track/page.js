@@ -1,7 +1,7 @@
 // app/track/page.js
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { formatDate } from "@/lib/utils";
 import TrackingTimeline from "@/components/order/TrackingTimeline";
@@ -12,6 +12,12 @@ export default function TrackOrderPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState(null);
+
+  useEffect(() => {
+    // guests arrive here from their confirmation page with the number filled in
+    const fromLink = new URLSearchParams(window.location.search).get("order");
+    if (fromLink) setOrderNumber(fromLink.trim().slice(0, 40));
+  }, []);
 
   const submit = async (e) => {
     e.preventDefault();
@@ -77,7 +83,11 @@ export default function TrackOrderPage() {
               <p className="text-sm font-bold text-white">Order #{result.orderNumber}</p>
               <span className="text-xs text-zinc-400">{formatDate(result.createdAt)}</span>
             </div>
-            <TrackingTimeline orderStatus={result.orderStatus} shipment={result.shipment} />
+            <TrackingTimeline
+              orderStatus={result.orderStatus}
+              shipments={result.shipments}
+              awaitingShipment={result.awaitingShipment}
+            />
           </div>
         )}
       </div>

@@ -116,16 +116,32 @@ export default function InvoiceDocument({ order, billing }) {
             <span className="text-zinc-500">Shipping {order.shippingMethodName && `(${order.shippingMethodName})`}</span>
             <span>{order.shippingCost > 0 ? money(order.shippingCost, currency) : "Free"}</span>
           </div>
-          {billing.invoice.taxInfo && (
-            <div className="flex justify-between">
-              <span className="text-zinc-500">{billing.invoice.taxInfo}</span>
-              <span>Included</span>
+          {/* Real tax, as charged on this order and frozen onto it. This
+              line used to read "{taxInfo}: Included" — a fixed label with no
+              figure, which told the customer and the tax authority nothing. */}
+          {(order.taxLines || []).map((t, i) => (
+            <div key={i} className="flex justify-between">
+              <span className="text-zinc-500">
+                {t.name} ({t.rate}%)
+                {order.pricesIncludeTax ? " — included in prices" : ""}
+              </span>
+              <span>{money(t.amount, currency)}</span>
             </div>
-          )}
+          ))}
           <div className="flex justify-between pt-2 border-t-2 border-zinc-900 font-extrabold text-base">
             <span>Total</span>
             <span>{money(total, currency)}</span>
           </div>
+          {/* Under inclusive pricing the tax is inside the total above, so
+              it's restated here rather than listed as an addition. */}
+          {order.pricesIncludeTax && order.taxTotal > 0 && (
+            <p className="pt-1 text-right text-[11px] text-zinc-500">
+              Total includes {money(order.taxTotal, currency)} tax
+            </p>
+          )}
+          {billing.invoice.taxInfo && (
+            <p className="pt-1 text-[11px] text-zinc-500">{billing.invoice.taxInfo}</p>
+          )}
         </div>
       </div>
 

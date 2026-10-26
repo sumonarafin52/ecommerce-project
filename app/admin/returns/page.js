@@ -9,6 +9,8 @@ import Badge from "@/components/admin/ui/Badge";
 import EmptyState from "@/components/admin/ui/EmptyState";
 import usePermissions from "@/lib/usePermissions";
 import { formatCurrency, formatDateTime } from "@/lib/utils";
+import PermissionGate from "@/components/admin/ui/PermissionGate";
+import ErrorState from "@/components/admin/ui/ErrorState";
 
 const STATUS_TONE = {
   requested: "warning",
@@ -43,7 +45,8 @@ const ACTIONS = {
 const FILTERS = ["all", "requested", "approved", "received", "refunded", "rejected"];
 
 export default function AdminReturnsPage() {
-  const { can, loading: permLoading } = usePermissions();
+  const { can, loading: permLoading, failed: permFailed, refresh: refreshPermissions } = usePermissions();
+  const [loadError, setLoadError] = useState(false);
   const [returns, setReturns] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("requested");
@@ -54,10 +57,11 @@ export default function AdminReturnsPage() {
     setLoading(true);
     const qs = new URLSearchParams({ scope: "all" });
     if (filter !== "all") qs.set("status", filter);
+    setLoadError(false);
     fetch(`/api/returns?${qs}`, { cache: "no-store" })
       .then((r) => r.json())
-      .then((res) => res.success && setReturns(res.data))
-      .catch(() => {})
+      .then((res) => (res.success ? setReturns(res.data) : setLoadError(true)))
+      .catch(() => setLoadError(true))
       .finally(() => setLoading(false));
   };
 
@@ -88,18 +92,22 @@ export default function AdminReturnsPage() {
     }
     setBusyId("");
   };
-
-  if (permLoading) return null;
-  if (!can("orders")) {
+  if (permLoading || permFailed || !can("orders")) {
     return (
-      <div className="max-w-5xl mx-auto px-4 lg:px-8 py-6">
-        <p className="admin-text-secondary text-sm">You don&apos;t have permission to view returns.</p>
-      </div>
+      <PermissionGate
+        perm="orders"
+        what="orders"
+        state={{ loading: permLoading, failed: permFailed, can, refresh: refreshPermissions }}
+      />
     );
   }
 
+  if (loadError) {
+    return <ErrorState what="returns" onRetry={() => { setLoadError(false); load(); }} />;
+  }
+
   return (
-    <div className="max-w-5xl mx-auto px-4 lg:px-8 py-6">
+    <div className="max-w-[1700px] mx-auto px-4 lg:px-8 py-6">
       <PageHeader
         title="Returns"
         description="Review return requests. Stock is added back automatically when you mark an item received."
@@ -185,7 +193,7 @@ export default function AdminReturnsPage() {
                 {actions.length > 0 && (
                   <div className="flex flex-wrap items-center gap-2 pt-1">
                     <input
-                      className="admin-input flex-1 min-w-[180px] rounded-lg px-3 py-2 text-sm"
+                      className="admin-input flex-1 min-w-[180px]"
                       placeholder="Note to customer (required to reject)"
                       value={notes[r._id] ?? r.adminNote ?? ""}
                       onChange={(e) => setNotes((n) => ({ ...n, [r._id]: e.target.value }))}

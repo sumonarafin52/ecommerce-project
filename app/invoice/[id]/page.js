@@ -17,13 +17,19 @@ export default function InvoicePage() {
   const printRef = useRef(null);
 
   useEffect(() => {
-    if (status === "unauthenticated") {
+    // A guest arrives with their order's access token in the URL. Sending
+    // them to the login page instead — as this did — left them unable to
+    // ever see the invoice for an order they'd paid for.
+    const guestToken =
+      typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("t") || "" : "";
+
+    if (status === "unauthenticated" && !guestToken) {
       router.replace(`/login?callbackUrl=/invoice/${id}`);
       return;
     }
-    if (status !== "authenticated") return;
+    if (status !== "authenticated" && !guestToken) return;
 
-    fetch(`/api/orders/${id}/invoice`)
+    fetch(`/api/orders/${id}/invoice${guestToken ? `?t=${encodeURIComponent(guestToken)}` : ""}`)
       .then((r) => r.json())
       .then((res) => {
         if (res.success) setData(res.data);

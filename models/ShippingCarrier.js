@@ -15,11 +15,19 @@ const shippingCarrierSchema = new mongoose.Schema(
     trackingUrlTemplate: { type: String, default: "" },
     notes: { type: String, default: "" },
     active: { type: Boolean, default: true },
-    // reserved for a future real API integration — not used yet, but kept
-    // here so adding one later doesn't require a schema migration
+    // Courier API integration. `provider` names an adapter in
+    // lib/carriers/; "manual" (or connected:false) means tracking numbers
+    // are entered by hand, which is the normal case for most couriers.
     api: {
       connected: { type: Boolean, default: false },
-      provider: { type: String, default: "" },
+      provider: { type: String, default: "manual" },
+      // Per-provider credentials. Secret ones are encrypted at rest, the
+      // same way payment gateway credentials are, and never leave the
+      // server — the admin UI only learns whether one is set.
+      credentials: { type: mongoose.Schema.Types.Mixed, default: {} },
+      lastTestedAt: { type: Date, default: null },
+      lastTestOk: { type: Boolean, default: null },
+      lastTestMessage: { type: String, default: "" },
     },
   },
   { timestamps: true }

@@ -8,11 +8,11 @@ import { useSession } from "next-auth/react";
 import toast from "react-hot-toast";
 import { formatCurrency, formatDate, formatDateTime } from "@/lib/utils";
 import { ORDER_STATUS_LABELS, ORDER_STATUS_COLORS, VALID_TRANSITIONS } from "@/lib/orderStatus";
+import Icon from "@/components/ui/Icon";
+import Button from "@/components/admin/ui/Button";
 
-const selectCls =
-  "bg-primary border border-white/15 rounded-md px-3 py-2 text-sm text-white outline-none focus:border-accent transition-colors";
-const inputCls =
-  "bg-primary border border-white/15 rounded-md px-3 py-2 text-sm text-white placeholder-zinc-500 outline-none focus:border-accent transition-colors";
+const selectCls = "admin-input";
+const inputCls = "admin-input";
 const badge = (color) => `px-2.5 py-1 rounded-full text-[11px] font-bold capitalize whitespace-nowrap ${color}`;
 const card = "bg-primary-light border border-white/10 rounded-xl p-5";
 
@@ -23,14 +23,14 @@ const payColors = {
   refunded: "bg-zinc-500/15 text-zinc-400",
 };
 const ACTIVITY_STYLE = {
-  status_changed: { icon: "🔄", color: "text-accent" },
-  payment_status_changed: { icon: "💳", color: "text-blue-400" },
-  hold: { icon: "⏸️", color: "text-amber-400" },
-  hold_released: { icon: "▶️", color: "text-green-400" },
-  address_changed: { icon: "📍", color: "text-zinc-300" },
-  shipment_created: { icon: "📦", color: "text-blue-400" },
-  refund: { icon: "💰", color: "text-rose-400" },
-  note: { icon: "📝", color: "text-zinc-300" },
+  status_changed: { icon: "returns", color: "text-accent" },
+  payment_status_changed: { icon: "card", color: "text-blue-400" },
+  hold: { icon: "pause", color: "text-amber-400" },
+  hold_released: { icon: "play", color: "text-green-400" },
+  address_changed: { icon: "pin", color: "text-zinc-300" },
+  shipment_created: { icon: "package", color: "text-blue-400" },
+  refund: { icon: "coins", color: "text-rose-400" },
+  note: { icon: "note", color: "text-zinc-300" },
 };
 
 const fulfillColors = {
@@ -66,7 +66,9 @@ function computeRemaining(order) {
   });
   return (order.items || [])
     .map((it) => {
-      const key = String(it.product);
+      // the order API populates items.product (for thumbnails), so it may be
+      // an object — use its id either way
+      const key = String(it.product?._id || it.product);
       const done = fulfilledMap.get(key) || 0;
       return { product: key, name: it.name, remaining: Math.max(0, it.quantity - done) };
     })
@@ -145,13 +147,9 @@ function CreateShipmentForm({ order, carriers, methods, onCreated, onCancel }) {
       />
       <div className="flex justify-end gap-2 pt-1">
         <button onClick={onCancel} className="text-xs font-bold text-zinc-400 hover:text-white px-3 py-2">Cancel</button>
-        <button
-          onClick={submit}
-          disabled={saving}
-          className="bg-accent hover:bg-accent/80 text-primary text-xs font-bold px-4 py-2 rounded-md disabled:opacity-50"
-        >
+        <Button size="sm" onClick={submit} disabled={saving}>
           {saving ? "Creating..." : "Create shipment"}
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -164,6 +162,32 @@ function FulfillmentCard({ fulfillment, orderId, onUpdated }) {
   const [saving, setSaving] = useState(false);
   const [editing, setEditing] = useState(false);
   const [trackingNumber, setTrackingNumber] = useState(fulfillment.trackingNumber || "");
+  const [courierBusy, setCourierBusy] = useState("");
+
+  // Only offered when this carrier actually has a working integration — a
+  // "Book with courier" button that can't book is worse than no button.
+  const api = fulfillment.carrier?.api;
+  const canBook = !!api?.connected && !fulfillment.consignmentId;
+  const canRefresh = !!api?.connected && !!(fulfillment.consignmentId || fulfillment.trackingNumber);
+
+  const courierAction = async (action) => {
+    setCourierBusy(action);
+    try {
+      const res = await fetch(`/api/orders/${orderId}/carrier`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, fulfillmentId: fulfillment._id }),
+      }).then((r) => r.json());
+      if (!res.success) throw new Error(res.message);
+      // A successful call that changed nothing still has something to say —
+      // "no change" and "we don't recognise that status" both land here.
+      toast.success(res.message);
+      onUpdated();
+    } catch (err) {
+      toast.error(err.message || "The courier couldn't be reached");
+    }
+    setCourierBusy("");
+  };
 
   const addEvent = async () => {
     setSaving(true);
@@ -231,15 +255,44 @@ function FulfillmentCard({ fulfillment, orderId, onUpdated }) {
         {editing ? (
           <>
             <input className={`${inputCls} flex-1`} value={trackingNumber} onChange={(e) => setTrackingNumber(e.target.value)} placeholder="Tracking number" />
-            <button onClick={saveTracking} disabled={saving} className="text-xs font-bold text-accent hover:underline">Save</button>
+            <Button variant="link" onClick={saveTracking} disabled={saving}>Save</Button>
           </>
         ) : (
           <>
             <span className="text-xs text-zinc-500">Tracking: {fulfillment.trackingNumber || "—"}</span>
-            <button onClick={() => setEditing(true)} className="text-xs font-bold text-accent hover:underline">Edit</button>
+            <Button variant="link" onClick={() => setEditing(true)}>Edit</Button>
           </>
         )}
       </div>
+
+      {(canBook || canRefresh || fulfillment.consignmentId) && (
+        <div className="flex flex-wrap items-center gap-3 text-xs">
+          {canBook && (
+            <button
+              onClick={() => courierAction("book")}
+              disabled={!!courierBusy}
+              className="font-bold text-accent hover:underline disabled:opacity-50"
+            >
+              {courierBusy === "book" ? "Booking…" : `Book with ${fulfillment.carrier.name}`}
+            </button>
+          )}
+          {canRefresh && (
+            <button
+              onClick={() => courierAction("refreshStatus")}
+              disabled={!!courierBusy}
+              className="font-bold text-accent hover:underline disabled:opacity-50"
+            >
+              {courierBusy === "refreshStatus" ? "Checking…" : "Refresh status"}
+            </button>
+          )}
+          {fulfillment.consignmentId && (
+            <span className="text-zinc-500">Consignment {fulfillment.consignmentId}</span>
+          )}
+          {fulfillment.lastStatusCheckAt && (
+            <span className="text-zinc-600">Checked {formatDate(fulfillment.lastStatusCheckAt)}</span>
+          )}
+        </div>
+      )}
 
       {fulfillment.timeline?.length > 0 && (
         <div className="space-y-1.5 pl-3 border-l-2 border-white/10">
@@ -270,6 +323,8 @@ export default function OrderDetailsPage() {
   const { id } = useParams();
   const { data: session, status } = useSession();
   const [order, setOrder] = useState(null);
+  const [note, setNote] = useState("");
+  const [noteSaving, setNoteSaving] = useState(false);
   const [loading, setLoading] = useState(true);
   const [carriers, setCarriers] = useState([]);
   const [methods, setMethods] = useState([]);
@@ -437,9 +492,9 @@ export default function OrderDetailsPage() {
     return (
       <div className="bg-primary min-h-screen flex flex-col items-center justify-center gap-4 text-center px-4">
         <p className="text-xl font-bold text-white">Access required</p>
-        <Link href="/admin/orders" className="bg-accent hover:bg-accent/80 text-primary font-bold px-6 py-3 rounded-md transition-colors">
+        <Button as={Link} href="/admin/orders">
           Back to Orders
-        </Link>
+        </Button>
       </div>
     );
   }
@@ -448,9 +503,9 @@ export default function OrderDetailsPage() {
     return (
       <div className="bg-primary min-h-screen flex flex-col items-center justify-center gap-4 text-center px-4">
         <p className="text-xl font-bold text-white">Order not found</p>
-        <Link href="/admin/orders" className="bg-accent hover:bg-accent/80 text-primary font-bold px-6 py-3 rounded-md transition-colors">
+        <Button as={Link} href="/admin/orders">
           Back to Orders
-        </Link>
+        </Button>
       </div>
     );
   }
@@ -469,20 +524,20 @@ export default function OrderDetailsPage() {
           <div className="flex flex-wrap items-start justify-between gap-4 mt-2">
             <div>
               <div className="flex items-center gap-3 flex-wrap">
-                <h1 className="text-2xl font-bold text-white">Order #{(order._id || "").slice(-6).toUpperCase()}</h1>
+                <h1 className="text-2xl font-bold text-white">Order {order.orderNumber || `#${(order._id || "").slice(-6).toUpperCase()}`}</h1>
                 <span className={badge(ORDER_STATUS_COLORS[order.orderStatus])}>{ORDER_STATUS_LABELS[order.orderStatus] || order.orderStatus}</span>
                 <span className={badge(payColors[order.paymentStatus])}>{order.paymentStatus}</span>
                 <span className={badge(fulfillColors[fulfillmentStatus])}>{fulfillLabels[fulfillmentStatus]}</span>
                 {order.paymentMethod === "cod" && <span className={badge("bg-blue-500/15 text-blue-400")}>COD</span>}
               </div>
-              <p className="text-sm text-zinc-400 mt-1">{formatDate(order.createdAt)} · {order.user?.name || "Unknown customer"}</p>
+              <p className="text-sm text-zinc-400 mt-1">{formatDate(order.createdAt)} · {order.user?.name || order.shippingAddress?.fullName || "Guest"}{!order.user && " (guest)"}</p>
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
               <a href={`/invoice/${order._id}`} target="_blank" rel="noopener noreferrer" className="text-xs font-bold border border-white/15 hover:border-accent hover:text-accent text-zinc-300 px-3 py-2 rounded-md transition-colors">
                 View Invoice
               </a>
-              <a href={`mailto:${order.user?.email || ""}`} className="text-xs font-bold border border-white/15 hover:border-accent hover:text-accent text-zinc-300 px-3 py-2 rounded-md transition-colors">
+              <a href={`mailto:${order.user?.email || order.guestEmail || ""}`} className="text-xs font-bold border border-white/15 hover:border-accent hover:text-accent text-zinc-300 px-3 py-2 rounded-md transition-colors">
                 Email Customer
               </a>
               <a href={`tel:${order.shippingAddress?.phone || ""}`} className="text-xs font-bold border border-white/15 hover:border-accent hover:text-accent text-zinc-300 px-3 py-2 rounded-md transition-colors">
@@ -538,9 +593,9 @@ export default function OrderDetailsPage() {
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-sm font-bold text-white">Shipping & Fulfillment</h2>
                 {remaining.length > 0 && !showCreateShipment && (
-                  <button onClick={() => setShowCreateShipment(true)} className="text-xs font-bold text-accent hover:underline">
+                  <Button variant="link" onClick={() => setShowCreateShipment(true)}>
                     + Create shipment
-                  </button>
+                  </Button>
                 )}
               </div>
 
@@ -576,6 +631,50 @@ export default function OrderDetailsPage() {
             {/* activity timeline */}
             <div className={card}>
               <h2 className="text-sm font-bold text-white mb-4">Activity Timeline</h2>
+
+              {/* internal note — staff only, never shown to the customer */}
+              <form
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  const text = note.trim();
+                  if (!text) return;
+                  setNoteSaving(true);
+                  try {
+                    const res = await fetch(`/api/orders/${order._id}`, {
+                      method: "PUT",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ staffNote: text }),
+                    }).then((r) => r.json());
+                    if (!res.success) throw new Error(res.message);
+                    setNote("");
+                    toast.success("Note added");
+                    load();
+                  } catch (err) {
+                    toast.error(err.message || "Couldn't add the note");
+                  }
+                  setNoteSaving(false);
+                }}
+                className="mb-4"
+              >
+                <textarea
+                  rows={2}
+                  maxLength={1000}
+                  value={note}
+                  onChange={(e) => setNote(e.target.value)}
+                  placeholder="Add an internal note — e.g. customer called, deliver after 5pm"
+                  className="admin-input w-full"
+                />
+                <div className="flex items-center justify-between mt-1.5">
+                  <span className="text-[11px] admin-text-muted">Staff only — the customer never sees this</span>
+                  <button
+                    type="submit"
+                    disabled={noteSaving || !note.trim()}
+                    className="text-xs font-bold bg-accent text-white hover:bg-accent/90 px-3.5 py-1.5 rounded-lg disabled:opacity-50"
+                  >
+                    {noteSaving ? "Adding…" : "Add note"}
+                  </button>
+                </div>
+              </form>
               {order.activity?.length > 0 ? (
                 <div className="space-y-4 pl-4 border-l-2 border-white/10">
                   {order.activity.slice().reverse().map((a, i) => {
@@ -583,7 +682,7 @@ export default function OrderDetailsPage() {
                     return (
                       <div key={i} className="relative text-sm">
                         <span className="absolute -left-[22px] top-0.5 w-4 h-4 flex items-center justify-center text-[11px] bg-primary-light rounded-full border border-white/10">
-                          {style.icon}
+                          <Icon name={style.icon} size={15} />
                         </span>
                         <p className={`font-medium ${style.color}`}>{a.message}</p>
                         <p className="text-xs text-zinc-500 mt-0.5">
@@ -658,9 +757,9 @@ export default function OrderDetailsPage() {
                   {order.refund.method === "gateway_pending" && (
                     <div className="flex items-center gap-2">
                       <span className="text-[11px] font-bold text-amber-400">Gateway refund pending settlement (ref {order.refund.gatewayRefundRefId})</span>
-                      <button onClick={checkRefundStatus} disabled={checkingRefund} className="text-[11px] font-bold text-accent hover:underline disabled:opacity-50">
+                      <Button variant="link" className="disabled:opacity-50" onClick={checkRefundStatus} disabled={checkingRefund}>
                         {checkingRefund ? "Checking..." : "Check status"}
-                      </button>
+                      </Button>
                     </div>
                   )}
                   {order.refund.method === "gateway_completed" && (
@@ -689,9 +788,9 @@ export default function OrderDetailsPage() {
               <div className="flex items-center justify-between mb-3">
                 <h2 className="text-sm font-bold text-white">Customer</h2>
                 {!editingAddress && (
-                  <button onClick={() => { setAddressForm(order.shippingAddress); setEditingAddress(true); }} className="text-xs font-bold text-accent hover:underline">
+                  <Button variant="link" onClick={() => { setAddressForm(order.shippingAddress); setEditingAddress(true); }}>
                     Edit address
-                  </button>
+                  </Button>
                 )}
               </div>
               <div className="space-y-1.5 text-sm text-zinc-300 mb-3">

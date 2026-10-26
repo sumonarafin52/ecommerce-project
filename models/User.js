@@ -19,8 +19,21 @@ const userSchema = new mongoose.Schema(
     // token exists solely in the emailed link — so a database leak can't be
     // turned into account takeovers. Hidden from queries by default, like
     // the password itself.
+    // Set whenever the password changes. Any session issued before this
+    // moment is rejected, so resetting a password evicts anyone already
+    // signed in — the whole point of resetting a compromised account.
+    passwordChangedAt: { type: Date, default: null },
     resetTokenHash: { type: String, select: false, default: null },
     resetTokenExpires: { type: Date, select: false, default: null },
+
+    // What the customer is willing to be emailed about, beyond the messages
+    // that belong to something they did (orders, payments, returns).
+    // Opt-OUT rather than opt-in: a basket reminder is about this person's
+    // own saved basket on this shop, not a campaign. Every reminder carries
+    // a one-click off switch, and this is the flag it sets.
+    emailPrefs: {
+      cartReminders: { type: Boolean, default: true },
+    },
   },
   { timestamps: true }
 );

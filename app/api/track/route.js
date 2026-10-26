@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import connectDB from "@/lib/db";
 import Order from "@/models/Order";
 import { rateLimit, getClientIp } from "@/lib/rateLimit";
+import { customerTracking } from "@/lib/customerTracking";
 import { serverError } from "@/lib/apiError";
 
 // Public tracking — no login required, but gated by knowing both the order
@@ -26,13 +27,19 @@ export async function POST(request) {
 
     const order = await Order.findOne({ orderNumber: orderNumber.trim() })
       .populate("shipment.carrier", "name trackingUrlTemplate")
-      .populate("shipment.method", "name estimatedDelivery");
+      .populate("shipment.method", "name estimatedDelivery")
+      // Shipments created by the admin live here, not in the singular field
+      // above — without this the tracking page is empty for every order
+      // fulfilled through the current admin UI.
+      .populate("fulfillments.carrier", "name trackingUrlTemplate");
 
     // same generic message whether the order or phone didn't match — don't
     // reveal which one was wrong
     if (!order || order.shippingAddress?.phone?.replace(/\s+/g, "") !== phone.trim().replace(/\s+/g, "")) {
       return NextResponse.json({ success: false, message: "No matching order found" }, { status: 404 });
     }
+
+    const tracking = customerTracking(order);
 
     return NextResponse.json({
       success: true,
@@ -42,7 +49,7 @@ export async function POST(request) {
         orderStatus: order.orderStatus,
         paymentStatus: order.paymentStatus,
         city: order.shippingAddress?.city,
-        shipment: order.shipment,
+        ...tracking,
       },
     });
   } catch (error) {

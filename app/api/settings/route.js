@@ -7,73 +7,13 @@ import connectDB from "@/lib/db";
 import Settings from "@/models/Settings";
 import { hasPermission } from "@/lib/rbac";
 import { PAYMENT_GATEWAYS, MASK, isGatewayConfigured } from "@/lib/paymentGateways";
+import { getOrCreateSettings, toAdminSafeJSON, toPublicJSON } from "@/lib/settingsService";
 import { encryptSecret } from "@/lib/crypto";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { serverError } from "@/lib/apiError";
-
-// there is only ever one Settings document — fetch it, creating a default
-// one on first use so the rest of the app never has to null-check
-async function getOrCreateSettings() {
-  let settings = await Settings.findOne();
-  if (!settings) {
-    settings = await Settings.create({});
-  }
-  return settings;
-}
-
-// Admin view: same document, but every secret credential field is replaced
-// with a mask. The real value never leaves the server once saved — the
-// admin UI only ever sees "is this set or not", never the value itself.
-function toAdminSafeJSON(settings) {
-  const obj = settings.toObject();
-  const payment = obj.payment || {};
-  const maskedPayment = {};
-  for (const gateway of PAYMENT_GATEWAYS) {
-    const stored = payment[gateway.id] || {};
-    const fields = { ...(stored.fields || {}) };
-    for (const f of gateway.fields) {
-      if (f.secret && fields[f.key]) fields[f.key] = MASK;
-    }
-    maskedPayment[gateway.id] = {
-      enabled: !!stored.enabled,
-      mode: stored.mode || "sandbox",
-      fields,
-      configured: isGatewayConfigured(gateway, stored.fields || {}),
-    };
-  }
-  return { ...obj, payment: maskedPayment, email: { ...obj.email, smtpPassword: obj.email?.smtpPassword ? MASK : "" } };
-}
-
-// Public view (storefront): no credentials, no config shape at all — just
-// which gateways are enabled and ready, so checkout can decide what to show.
-// Only gateways with checkoutLive:true are ever offered — enabling a
-// not-yet-integrated gateway (e.g. Stripe) configures it for later but
-// doesn't put it in front of customers, since there's no real flow behind it.
-function toPublicJSON(settings) {
-  const obj = settings.toObject();
-  const payment = obj.payment || {};
-  const enabledPaymentMethods = PAYMENT_GATEWAYS.filter((gateway) => {
-    if (!gateway.checkoutLive) return false;
-    const stored = payment[gateway.id];
-
-    // Cash on Delivery needs no configuration — on by default until
-    // explicitly turned off.
-    if (gateway.id === "cod") return stored ? stored.enabled !== false : true;
-
-    // SSLCommerz: if Settings has never been touched, fall back to whatever
-    // is in .env (matches app/api/checkout/route.js's own fallback), so a
-    // store that configured SSLCommerz the old way — via .env — keeps
-    // working exactly as before without a forced trip to Settings first.
-    if (gateway.id === "sslcommerz" && !stored) {
-      return !!(process.env.SSLCOMMERZ_STORE_ID && process.env.SSLCOMMERZ_STORE_PASSWORD);
-    }
-
-    return stored?.enabled && isGatewayConfigured(gateway, stored.fields || {});
-  }).map((g) => ({ id: g.id, label: g.label, region: g.region }));
-
-  const { payment: _p, billing: _b, shipping: _s, email: _e, ...rest } = obj;
-  return { ...rest, enabledPaymentMethods };
-}
+import { INFO_PAGE_KEYS } from "@/lib/pageTemplates";
+import { NOTIFICATION_EVENTS } from "@/lib/notifications/events";
+import { clearTimezoneCache, safeTimezone } from "@/lib/storeTime";
 
 // GET: public callers (storefront Header/Footer/homepage) get the safe,
 // credential-free view. Signed-in staff with "settings" permission get the
@@ -111,7 +51,21 @@ export async function PUT(request) {
     // only merge recognized sections — never trust arbitrary client keys
     if (body.general && typeof body.general === "object") {
       settings.general = { ...settings.general.toObject?.() ?? settings.general, ...body.general };
+      // A timezone the platform doesn't recognise would make MongoDB reject
+      // every report aggregation, so it is checked here rather than being
+      // discovered later by a page that won't load.
+      if (body.general.timezone !== undefined) {
+        settings.general.timezone = safeTimezone(body.general.timezone);
+      }
     }
+    if (body.checkout && typeof body.checkout === "object") {
+      const mode = body.checkout.guestCheckout;
+      if (["off", "cod", "all"].includes(mode)) {
+        settings.checkout = { ...(settings.checkout?.toObject?.() ?? settings.checkout ?? {}), guestCheckout: mode };
+        settings.markModified("checkout");
+      }
+    }
+
     if (body.homepage && typeof body.homepage === "object") {
       if (Array.isArray(body.homepage.heroSlides)) settings.homepage.heroSlides = body.homepage.heroSlides;
       if (Array.isArray(body.homepage.banners)) settings.homepage.banners = body.homepage.banners;
@@ -182,6 +136,86 @@ export async function PUT(request) {
       paymentWarnings = warnings;
     }
 
+    if (body.notifications && typeof body.notifications === "object") {
+      const current = settings.notifications?.toObject?.() ?? settings.notifications ?? {};
+      const incoming = body.notifications;
+      const next = { ...current };
+
+      if (incoming.channels && typeof incoming.channels === "object") {
+        next.channels = {
+          inApp: incoming.channels.inApp !== false,
+          email: !!incoming.channels.email,
+          sms: !!incoming.channels.sms,
+        };
+      }
+
+      if (incoming.events && typeof incoming.events === "object") {
+        // Only ids this build knows about, and only the three channels —
+        // an unrecognised key here would silently never be read.
+        const clean = {};
+        for (const ev of NOTIFICATION_EVENTS) {
+          const row = incoming.events[ev.id];
+          if (!row || typeof row !== "object") continue;
+          clean[ev.id] = { inApp: !!row.inApp, email: !!row.email, sms: !!row.sms };
+        }
+        next.events = clean;
+      }
+
+      if (incoming.sms && typeof incoming.sms === "object") {
+        const currentSms = current.sms || {};
+        const sms = { ...currentSms };
+        if (incoming.sms.enabled !== undefined) sms.enabled = !!incoming.sms.enabled;
+        if (incoming.sms.providerName !== undefined) sms.providerName = String(incoming.sms.providerName).slice(0, 80);
+        if (incoming.sms.urlTemplate !== undefined) sms.urlTemplate = String(incoming.sms.urlTemplate).slice(0, 1000);
+        if (incoming.sms.method !== undefined) sms.method = incoming.sms.method === "POST" ? "POST" : "GET";
+        if (incoming.sms.contentType !== undefined) sms.contentType = String(incoming.sms.contentType).slice(0, 80);
+        if (incoming.sms.bodyTemplate !== undefined) sms.bodyTemplate = String(incoming.sms.bodyTemplate).slice(0, 1000);
+        if (incoming.sms.senderId !== undefined) sms.senderId = String(incoming.sms.senderId).slice(0, 40);
+        // The key is write-only: the UI sends the mask back when unchanged,
+        // exactly as the payment gateways do, so it isn't overwritten with
+        // asterisks.
+        if (incoming.sms.apiKey !== undefined && incoming.sms.apiKey !== MASK) {
+          sms.apiKey = incoming.sms.apiKey ? encryptSecret(String(incoming.sms.apiKey)) : "";
+        }
+        next.sms = sms;
+      }
+
+      settings.notifications = next;
+      settings.markModified("notifications");
+    }
+
+    if (body.tax && typeof body.tax === "object") {
+      const current = settings.tax?.toObject?.() ?? settings.tax ?? {};
+      const next = { ...current };
+      if (body.tax.enabled !== undefined) next.enabled = !!body.tax.enabled;
+      if (body.tax.pricesIncludeTax !== undefined) next.pricesIncludeTax = !!body.tax.pricesIncludeTax;
+      if (body.tax.displayNote !== undefined) next.displayNote = String(body.tax.displayNote || "").slice(0, 120);
+      if (body.tax.basedOn !== undefined) {
+        next.basedOn = body.tax.basedOn === "store" ? "store" : "shipping";
+      }
+      if (body.tax.storeCountry !== undefined) next.storeCountry = String(body.tax.storeCountry || "").slice(0, 80);
+      if (body.tax.storeState !== undefined) next.storeState = String(body.tax.storeState || "").slice(0, 80);
+      settings.tax = next;
+      settings.markModified("tax");
+    }
+
+    if (body.pages && typeof body.pages === "object") {
+      const current = settings.pages?.toObject?.() ?? settings.pages ?? {};
+      const next = { ...current };
+      const stamps = { ...(settings.pagesUpdatedAt || {}) };
+      for (const key of INFO_PAGE_KEYS) {
+        const v = body.pages[key];
+        if (typeof v !== "string") continue;
+        const value = v.slice(0, 20000);
+        if (value !== (current[key] || "")) stamps[key] = new Date(); // only real edits move the date
+        next[key] = value;
+      }
+      settings.pages = next;
+      settings.pagesUpdatedAt = stamps;
+      settings.markModified("pages");
+      settings.markModified("pagesUpdatedAt");
+    }
+
     if (body.email && typeof body.email === "object") {
       const currentEmail = settings.email?.toObject?.() ?? settings.email ?? {};
       const incoming = { ...body.email };
@@ -199,6 +233,11 @@ export async function PUT(request) {
     settings.markModified("general");
     settings.markModified("homepage");
     await settings.save();
+
+    // Reports read the shop's timezone through a one-minute cache; drop it
+    // here so a corrected timezone takes effect on the next report rather
+    // than looking as if the setting hadn't saved.
+    clearTimezoneCache();
 
     return NextResponse.json({ success: true, data: toAdminSafeJSON(settings), warnings: paymentWarnings });
   } catch (error) {

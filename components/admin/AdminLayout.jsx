@@ -6,6 +6,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
 import usePermissions from "@/lib/usePermissions";
+import { orderCounts, storeReadiness } from "@/lib/adminChrome";
+import Button from "@/components/admin/ui/Button";
 
 const Icon = ({ d, className = "w-5 h-5" }) => (
   <svg className={className} fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24">
@@ -22,6 +24,8 @@ const icons = {
   orders: "M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z",
   products: "M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4",
   customers: "M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z",
+  package: "M12 3l8 4.2v9.6L12 21l-8-4.2V7.2L12 3zm0 0v18M4 7.2l8 4.3 8-4.3",
+  carts: "M3 4h2.2l2.3 10.5a1.5 1.5 0 001.5 1.2h8.3a1.5 1.5 0 001.5-1.1L20.5 8H6.3M10 20a1 1 0 100-2 1 1 0 000 2zm7 0a1 1 0 100-2 1 1 0 000 2z",
   reports: "M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z",
   discounts: "M7 7h.01M7 3h5a2 2 0 011.4.6l7 7a2 2 0 010 2.8l-5 5a2 2 0 01-2.8 0l-7-7A2 2 0 015 10V5a2 2 0 012-2z",
   category: "M4 6a2 2 0 012-2h4l2 2h6a2 2 0 012 2v10a2 2 0 01-2 2H6a2 2 0 01-2-2V6z",
@@ -37,7 +41,7 @@ const icons = {
 export default function AdminLayout({ children }) {
   const pathname = usePathname();
   const { data: session } = useSession();
-  const { can, loading: permLoading } = usePermissions();
+  const { can, loading: permLoading, failed: permFailed, refresh: refreshPermissions } = usePermissions();
 
   const [open, setOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
@@ -46,20 +50,30 @@ export default function AdminLayout({ children }) {
   const [openGroups, setOpenGroups] = useState({});
   const [orderCount, setOrderCount] = useState(0);
   const [pendingCount, setPendingCount] = useState(0);
+  // "Store is live" used to be hardcoded green. It stayed green while the
+  // store couldn't take a single order (no payment method enabled), which is
+  // precisely when an admin most needs to be told otherwise.
+  const [readiness, setReadiness] = useState(null);
 
   useEffect(() => {
-    if (session?.user?.role === "customer") return;
-    fetch("/api/orders")
-      .then((r) => r.json())
-      .then((res) => {
-        if (res.success) {
-          const list = Array.isArray(res.data) ? res.data : res.data.orders || [];
-          setOrderCount(list.length);
-          setPendingCount(list.filter((o) => ["pending", "processing"].includes(o.orderStatus)).length);
-        }
-      })
-      .catch(() => {});
-  }, [session, pathname]);
+    if (!session?.user || session.user.role === "customer") return;
+    storeReadiness.get().then((d) => d && setReadiness(d));
+  }, [session]);
+
+  useEffect(() => {
+    if (!session?.user || session.user.role === "customer") return;
+    // Two counts from the server, rather than downloading the newest 100
+    // orders and counting them here — which both cost ~200ms on every admin
+    // navigation and reported "52 need attention" on a store that had 2,000.
+    orderCounts.get().then((d) => {
+      if (!d) return;
+      setOrderCount(d.total);
+      setPendingCount(d.needsAttention);
+    });
+    // Deliberately not keyed on `pathname`: the counts barely move between
+    // one admin page and the next, and refetching on every navigation was
+    // most of the cost.
+  }, [session]);
 
   const isActive = (href) => (href === "/admin" ? pathname === "/admin" : pathname.startsWith(href));
 
@@ -70,6 +84,7 @@ export default function AdminLayout({ children }) {
     { href: "/admin/support", label: "Support", icon: icons.support, perm: "customers" },
     { href: "/admin/newsletter", label: "Newsletter", icon: icons.newsletter, perm: "customers" },
     { href: "/admin/questions", label: "Product Q&A", icon: icons.questions, perm: "products" },
+    { href: "/admin/reviews", label: "Reviews", icon: icons.reports, perm: "products" },
     {
       key: "products",
       label: "Products",
@@ -77,11 +92,16 @@ export default function AdminLayout({ children }) {
       perm: "products",
       children: [
         { href: "/admin/products", label: "All Products" },
+        { href: "/admin/products/performance", label: "Performance", icon: icons.reports },
+        { href: "/admin/products/stock", label: "Stock History", icon: icons.package },
+        { href: "/admin/products/restock", label: "Restock", icon: icons.returns },
         { href: "/admin/categories", label: "Categories", icon: icons.category },
         { href: "/admin/digital", label: "Digital Products", icon: icons.digital },
+        { href: "/admin/downloads", label: "Customer Downloads", icon: icons.digital },
       ],
     },
     { href: "/admin/customers", label: "Customers", icon: icons.customers, perm: "customers" },
+    { href: "/admin/carts", label: "Abandoned Baskets", icon: icons.carts, perm: "carts" },
     { href: "/admin/reports", label: "Reports", icon: icons.reports, perm: "reports" },
     { href: "/admin/discounts", label: "Discounts", icon: icons.discounts, perm: "discounts" },
     {
@@ -93,6 +113,8 @@ export default function AdminLayout({ children }) {
         { href: "/admin/settings/general", label: "General" },
         { href: "/admin/settings/payment", label: "Payment Methods" },
         { href: "/admin/settings/billing", label: "Billing" },
+        { href: "/admin/settings/tax", label: "Tax" },
+        { href: "/admin/settings/notifications", label: "Notifications" },
         { href: "/admin/settings/shipping", label: "Shipping" },
       ],
     },
@@ -112,13 +134,36 @@ export default function AdminLayout({ children }) {
     <>
       <div className="flex-1 overflow-y-auto no-scrollbar px-3 py-4 space-y-5">
         {!collapsed && (
-          <div className="rounded-lg bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200 px-3 py-2.5 flex items-center gap-2">
-            <span className="relative flex w-2 h-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-60" />
-              <span className="relative inline-flex rounded-full w-2 h-2 bg-emerald-500" />
+          <Link
+            href="/admin"
+            className={`block rounded-lg border px-3 py-2.5 transition-colors ${
+              readiness && !readiness.canAcceptOrders
+                ? "border-rose-200 bg-rose-50 hover:bg-rose-100"
+                : "border-emerald-200 bg-gradient-to-r from-emerald-50 to-teal-50"
+            }`}
+          >
+            <span className="flex items-center gap-2">
+              <span className="relative flex w-2 h-2">
+                {/* no pulse on the failure state — a red light shouldn't
+                    look as reassuring as a green one */}
+                {(!readiness || readiness.canAcceptOrders) && (
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-60" />
+                )}
+                <span
+                  className={`relative inline-flex rounded-full w-2 h-2 ${
+                    readiness && !readiness.canAcceptOrders ? "bg-rose-500" : "bg-emerald-500"
+                  }`}
+                />
+              </span>
+              <span
+                className={`text-xs font-bold ${
+                  readiness && !readiness.canAcceptOrders ? "text-rose-700" : "text-emerald-700"
+                }`}
+              >
+                {readiness && !readiness.canAcceptOrders ? "Can't take orders" : "Store is live"}
+              </span>
             </span>
-            <p className="text-xs font-bold text-emerald-700">Store is live</p>
-          </div>
+          </Link>
         )}
 
         <div>
@@ -166,7 +211,7 @@ export default function AdminLayout({ children }) {
                                 href={c.href}
                                 onClick={() => setOpen(false)}
                                 className={`flex items-center gap-2 rounded-md px-2.5 py-2 text-xs font-bold transition-colors ${
-                                  isActive(c.href) ? "text-accent bg-accent/10" : "admin-text-secondary hover:bg-gray-50"
+                                  isActive(c.href) ? "bg-white text-[#303030] font-semibold shadow-[0_1px_0_rgba(26,26,26,0.07)]" : "text-[#616161] hover:bg-[#F7F7F7]/70"
                                 }`}
                               >
                                 {c.icon && <Icon d={c.icon} className="w-3.5 h-3.5" />}
@@ -184,11 +229,12 @@ export default function AdminLayout({ children }) {
                     href={item.href}
                     onClick={() => setOpen(false)}
                     title={item.label}
-                    className={`relative flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-bold transition-all ${
-                      isActive(item.href) ? "bg-accent/10 text-accent" : "admin-text-secondary hover:bg-gray-100"
+                    className={`relative flex items-center gap-2.5 rounded-lg px-2.5 py-[7px] text-[13px] font-semibold transition-colors ${
+                      isActive(item.href)
+                        ? "bg-white text-[#303030] shadow-[0_1px_0_rgba(26,26,26,0.07),0_0_0_1px_rgba(26,26,26,0.06)]"
+                        : "text-[#4A4A4A] hover:bg-[#F7F7F7]/70 hover:text-[#303030]"
                     } ${collapsed ? "lg:justify-center lg:px-0" : ""}`}
                   >
-                    {isActive(item.href) && <span className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-accent rounded-r-full" />}
                     <Icon d={item.icon} />
                     {!collapsed && <span className="flex-1">{item.label}</span>}
                     {!collapsed && item.badge > 0 && (
@@ -197,8 +243,22 @@ export default function AdminLayout({ children }) {
                   </Link>
                 )
               )}
+              {/* An empty nav has two causes and they need different words:
+                  the role really has nothing, or we could not find out. The
+                  sidebar used to say the first for both, which is how a
+                  signed-in owner was told their role had no admin access
+                  during a transient failure of /api/roles. */}
               {!permLoading && nav.length === 0 && (
-                <p className="px-2 text-xs admin-text-muted">No admin access for your role.</p>
+                permFailed ? (
+                  <div className="px-2">
+                    <p className="text-xs admin-text-muted">Couldn&apos;t load your menu.</p>
+                    <Button variant="link" className="mt-0.5" onClick={() => refreshPermissions?.()}>
+                      Try again
+                    </Button>
+                  </div>
+                ) : (
+                  <p className="px-2 text-xs admin-text-muted">No admin access for your role.</p>
+                )
               )}
             </div>
           )}
@@ -212,9 +272,11 @@ export default function AdminLayout({ children }) {
           >
             <div className="flex items-center gap-2">
               <Icon d={icons.bolt} className="w-4 h-4 text-accent" />
-              <p className="text-xs font-bold text-accent">{pendingCount} orders need attention</p>
+              <p className="text-xs font-bold text-accent">
+                {pendingCount} order{pendingCount === 1 ? "" : "s"} need{pendingCount === 1 ? "s" : ""} attention
+              </p>
             </div>
-            <p className="text-[11px] admin-text-muted mt-1">Unfulfilled orders pore ache</p>
+            <p className="text-[11px] admin-text-muted mt-1">Unfulfilled orders waiting</p>
           </Link>
         )}
 
@@ -248,7 +310,7 @@ export default function AdminLayout({ children }) {
   return (
     <div>
       <aside
-        className={`admin-sidebar hidden lg:flex fixed left-0 top-16 bottom-0 z-40 flex-col transition-all duration-300 ${
+        className={`admin-sidebar hidden lg:flex fixed left-0 top-14 bottom-0 z-40 flex-col transition-all duration-300 ${
           collapsed ? "w-20" : "w-64"
         }`}
       >
@@ -257,7 +319,7 @@ export default function AdminLayout({ children }) {
 
       <button
         onClick={() => setOpen(true)}
-        className="lg:hidden fixed bottom-5 left-5 z-50 w-12 h-12 rounded-full bg-gradient-to-br from-accent to-orange-500 text-white shadow-2xl flex items-center justify-center"
+        className="admin-on-dark lg:hidden fixed bottom-5 left-5 z-50 w-12 h-12 rounded-full bg-gradient-to-br from-accent to-orange-500 text-white shadow-2xl flex items-center justify-center"
         aria-label="Open admin menu"
       >
         <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">

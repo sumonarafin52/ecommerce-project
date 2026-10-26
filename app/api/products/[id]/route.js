@@ -5,8 +5,12 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import connectDB from "@/lib/db";
 import Product from "@/models/Product";
+import { recordMovement } from "@/lib/productStock";
+import { STOCK_REASONS } from "@/models/StockMovement";
 import { hasPermission } from "@/lib/rbac";
 import { notifyBackInStock } from "@/lib/inventoryEvents";
+import { findProductByParam, productFilter } from "@/lib/productLookup";
+import { resolveSlug } from "@/lib/productSlug";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { serverError } from "@/lib/apiError";
 
@@ -17,7 +21,11 @@ export async function GET(request, { params }) {
     const session = await getServerSession(authOptions);
     const canManage = session?.user ? await hasPermission(session, "products") : false;
 
-    const product = await Product.findById(params.id);
+    // The segment is a slug for anything linked today, or an ObjectId for
+    // links shared before slugs existed — both resolve, neither is treated
+    // as the other. A malformed value is a 404 rather than the CastError
+    // 500 it used to produce.
+    const product = await findProductByParam(params.id);
     if (!product) {
       return NextResponse.json({ success: false, message: "Product not found" }, { status: 404 });
     }
@@ -57,6 +65,14 @@ export async function PUT(request, { params }) {
       return NextResponse.json({ success: false, message: "No permission to manage products" }, { status: 403 });
     }
 
+    // Admin links carry the id, but a slug must not reach findByIdAndUpdate
+    // and throw a CastError — resolve either form to the real id first.
+    const target = await findProductByParam(params.id, { select: "_id slug name", lean: true });
+    if (!target) {
+      return NextResponse.json({ success: false, message: "Product not found" }, { status: 404 });
+    }
+    const productId = target._id;
+
     const body = await request.json();
     const update = {};
 
@@ -80,7 +96,7 @@ export async function PUT(request, { params }) {
     }
     if (body.discountPrice !== undefined) {
       const dp = Number(body.discountPrice) || 0;
-      const finalPrice = update.price !== undefined ? update.price : (await Product.findById(params.id))?.price;
+      const finalPrice = update.price !== undefined ? update.price : (await Product.findById(productId))?.price;
       if (dp > 0 && dp >= finalPrice) {
         return NextResponse.json({ success: false, message: "Selling price must be lower than old price" }, { status: 400 });
       }
@@ -98,13 +114,80 @@ export async function PUT(request, { params }) {
     if (body.stock !== undefined) update.stock = Number(body.stock) || 0;
     if (body.lowStockThreshold !== undefined) update.lowStockThreshold = Number(body.lowStockThreshold) || 5;
     if (body.featured !== undefined) update.featured = Boolean(body.featured);
+    // See the create route: these were dropped on every save, so the admin's
+    // digital-delivery select never persisted.
+    if (body.digitalProduct !== undefined) {
+      update.digitalProduct = /^[0-9a-fA-F]{24}$/.test(String(body.digitalProduct || "")) ? body.digitalProduct : null;
+    }
+    if (body.shippingRequirement !== undefined) {
+      update.shippingRequirement = ["auto", "always", "never"].includes(body.shippingRequirement)
+        ? body.shippingRequirement
+        : "auto";
+    }
     if (body.status !== undefined && ["public", "private", "draft", "unlisted"].includes(body.status))
       update.status = body.status;
     if (body.options !== undefined) update.options = Array.isArray(body.options) ? body.options : [];
     if (body.combinations !== undefined)
       update.combinations = Array.isArray(body.combinations) ? body.combinations : [];
 
-    const product = await Product.findByIdAndUpdate(params.id, update, { new: true });
+    // The slug only changes when staff edit it, or when a product that never
+    // had one is saved. Renaming a product deliberately does NOT move its
+    // URL: every link already shared would break, and the old URL is the one
+    // search engines have indexed. Staff can still change it by hand.
+    if (body.slug !== undefined && String(body.slug).trim()) {
+      update.slug = await resolveSlug({ requested: body.slug, name: update.name, excludeId: productId });
+    } else {
+      if (!target.slug) {
+        update.slug = await resolveSlug({
+          name: update.name || target.name,
+          excludeId: productId,
+          fallback: String(productId),
+        });
+      }
+    }
+
+    // What the stock number was before this save, so the change a person
+    // made is recorded like every other movement. Without this, "someone
+    // changed it" was the one kind of change with no trace — and the one
+    // most likely to be questioned later.
+    const before = update.stock !== undefined || update.combinations !== undefined
+      ? await Product.findById(productId).select("stock combinations").lean()
+      : null;
+
+    const product = await Product.findByIdAndUpdate(productId, update, { new: true });
+
+    if (product && before) {
+      const who = { id: session?.user?.id || null, name: session?.user?.name || "Staff" };
+
+      if (update.stock !== undefined && Number(update.stock) !== (before.stock ?? 0)) {
+        await recordMovement({
+          product: product._id,
+          delta: Number(update.stock) - (before.stock ?? 0),
+          reason: STOCK_REASONS.MANUAL,
+          by: who,
+          note: "stock edited on the product page",
+        });
+      }
+
+      // Variants each keep their own count, so each one that moved is its
+      // own row — a single "the product changed" line would be unreadable
+      // on a product with a dozen combinations.
+      if (update.combinations !== undefined) {
+        const was = new Map((before.combinations || []).map((c) => [c.key, c.stock ?? 0]));
+        for (const combo of product.combinations || []) {
+          const previous = was.get(combo.key);
+          if (previous === undefined || previous === (combo.stock ?? 0)) continue;
+          await recordMovement({
+            product: product._id,
+            combinationKey: combo.key,
+            delta: (combo.stock ?? 0) - previous,
+            reason: STOCK_REASONS.MANUAL,
+            by: who,
+            note: "variant stock edited on the product page",
+          });
+        }
+      }
+    }
     if (!product) {
       return NextResponse.json({ success: false, message: "Product not found" }, { status: 404 });
     }
@@ -137,7 +220,7 @@ export async function DELETE(request, { params }) {
       return NextResponse.json({ success: false, message: "No permission to manage products" }, { status: 403 });
     }
 
-    const product = await Product.findByIdAndDelete(params.id);
+    const product = await Product.findOneAndDelete(productFilter(params.id) || { _id: null });
     if (!product) {
       return NextResponse.json({ success: false, message: "Product not found" }, { status: 404 });
     }

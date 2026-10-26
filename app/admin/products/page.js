@@ -6,9 +6,14 @@ import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import usePermissions from "@/lib/usePermissions";
+import toast from "react-hot-toast";
+import Icon from "@/components/ui/Icon";
+import Checkbox from "@/components/admin/ui/Checkbox";
+import Button from "@/components/admin/ui/Button";
+import PermissionGate from "@/components/admin/ui/PermissionGate";
+import ErrorState from "@/components/admin/ui/ErrorState";
 
-const inputCls =
-  "bg-primary border border-white/15 rounded-md px-3 py-2 text-sm text-white placeholder-zinc-500 outline-none focus:border-accent transition-colors";
+const inputCls = "admin-input";
 
 const statusColors = {
   public: "bg-green-500/15 text-green-400",
@@ -60,7 +65,9 @@ const emptyFilters = {
 
 export default function AdminProductsPage() {
   const { data: session, status } = useSession();
-  const { can, loading: permLoading } = usePermissions();
+  const { can, loading: permLoading, failed: permFailed, refresh: refreshPermissions } = usePermissions();
+
+  const [loadError, setLoadError] = useState(false);
 
   const [products, setProducts] = useState([]);
   const [total, setTotal] = useState(0);
@@ -75,6 +82,8 @@ export default function AdminProductsPage() {
   const [filters, setFilters] = useState(emptyFilters);
   const [sort, setSort] = useState("newest");
   const [selectedIds, setSelectedIds] = useState([]);
+  const [stockEdit, setStockEdit] = useState({ id: null, value: "" });
+  const [savingStock, setSavingStock] = useState(null);
   const [bulkStatus, setBulkStatus] = useState("public");
   const [busy, setBusy] = useState(false);
 
@@ -108,6 +117,7 @@ export default function AdminProductsPage() {
   useEffect(() => {
     if (!(status === "authenticated" && can("products"))) return;
     setLoading(true);
+    setLoadError(false);
     fetch(`/api/products?${params}`)
       .then((r) => r.json())
       .then((res) => {
@@ -115,9 +125,9 @@ export default function AdminProductsPage() {
           setProducts(res.data.products);
           setTotal(res.data.total);
           setTotalPages(res.data.totalPages);
-        }
+        } else setLoadError(true);
       })
-      .catch(() => {})
+      .catch(() => setLoadError(true))
       .finally(() => setLoading(false));
   }, [params, status, can]);
 
@@ -128,28 +138,56 @@ export default function AdminProductsPage() {
   const toggleOne = (id) =>
     setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
 
+  // Inline stock save. Updates the row from the server's response rather
+  // than assuming success, so what's shown always matches what was stored.
+  const saveStock = async (p) => {
+    const next = parseInt(stockEdit.value, 10);
+    setStockEdit({ id: null, value: "" });
+    if (!Number.isFinite(next) || next < 0 || next === p.stock) return;
+    setSavingStock(p._id);
+    try {
+      const res = await fetch(`/api/products/${p._id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ stock: next }),
+      }).then((r) => r.json());
+      if (!res.success) throw new Error(res.message);
+      setProducts((list) => list.map((x) => (x._id === p._id ? { ...x, stock: res.data.stock } : x)));
+      toast.success(`${p.name}: stock set to ${res.data.stock}`);
+    } catch (err) {
+      toast.error(err.message || "Couldn't update stock");
+    }
+    setSavingStock(null);
+  };
+
   const bulk = async (action, value) => {
     if (!selectedIds.length) return;
     if (action === "delete" && !window.confirm(`Delete ${selectedIds.length} product(s)? This cannot be undone.`)) return;
     setBusy(true);
+    setLoadError(false);
     await fetch("/api/products/bulk", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action, ids: selectedIds, value }),
     }).then((r) => r.json());
     setSelectedIds([]);
+    setLoadError(false);
     fetch(`/api/products?${params}`).then((r) => r.json()).then((res) => {
       if (res.success) { setProducts(res.data.products); setTotal(res.data.total); setTotalPages(res.data.totalPages); }
+      else setLoadError(true);
     });
     setBusy(false);
   };
 
   const singleDelete = async (id) => {
     if (!window.confirm("Delete this product?")) return;
+    setLoadError(false);
     await fetch(`/api/products/${id}`, { method: "DELETE" }).then((r) => r.json());
     setSelectedIds([]);
+    setLoadError(false);
     fetch(`/api/products?${params}`).then((r) => r.json()).then((res) => {
       if (res.success) { setProducts(res.data.products); setTotal(res.data.total); setTotalPages(res.data.totalPages); }
+      else setLoadError(true);
     });
   };
 
@@ -181,6 +219,7 @@ export default function AdminProductsPage() {
         headers.forEach((h, i) => { obj[h] = r[i] ?? ""; });
         return obj;
       });
+      setLoadError(false);
       const res = await fetch("/api/products/import", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -188,8 +227,10 @@ export default function AdminProductsPage() {
       }).then((r) => r.json());
       setImportResult(res.success ? res.data : { created: 0, failed: 0, errors: [{ row: 0, message: res.message }] });
       if (res.success) {
+        setLoadError(false);
         fetch(`/api/products?${params}`).then((r) => r.json()).then((x) => {
           if (x.success) { setProducts(x.data.products); setTotal(x.data.total); setTotalPages(x.data.totalPages); }
+          else setLoadError(true);
         });
       }
     } catch {
@@ -206,15 +247,19 @@ export default function AdminProductsPage() {
     );
   }
 
-  if (!session || !can("products")) {
+  if (!session || permLoading || permFailed || !can("products")) {
     return (
-      <div className="bg-primary min-h-screen flex flex-col items-center justify-center gap-4 text-center px-4">
-        <p className="text-xl font-bold text-white">Access denied</p>
-        <Link href="/" className="bg-accent hover:bg-accent/80 text-primary font-bold px-6 py-3 rounded-md transition-colors">
-          Back to home
-        </Link>
-      </div>
+      <PermissionGate
+        perm="products"
+        what="products"
+        signedIn={!!session}
+        state={{ loading: permLoading, failed: permFailed, can, refresh: refreshPermissions }}
+      />
     );
+  }
+
+  if (loadError) {
+    return <ErrorState what="products" onRetry={() => { setLoadError(false); load(); }} />;
   }
 
   return (
@@ -230,12 +275,13 @@ export default function AdminProductsPage() {
             <button onClick={() => { setImportOpen(true); setImportResult(null); }} className="border border-white/15 text-zinc-300 hover:border-accent hover:text-accent font-bold px-4 py-2.5 rounded-md text-sm transition-colors">
                Import CSV
             </button>
-            <button onClick={() => exportCSV(products)} className="border border-white/15 text-zinc-300 hover:border-accent hover:text-accent font-bold px-4 py-2.5 rounded-md text-sm transition-colors">
-              ⬇ Export
+            <button onClick={() => exportCSV(products)} className="inline-flex items-center gap-1.5 border border-white/15 text-zinc-300 hover:border-accent hover:text-accent font-bold px-4 py-2.5 rounded-md text-sm transition-colors">
+              <Icon name="download" size={15} />
+              Export
             </button>
-            <Link href="/admin/products/new" className="bg-accent hover:bg-accent/80 text-primary font-bold px-4 py-2.5 rounded-md text-sm transition-colors shadow-glow">
+            <Button as={Link} href="/admin/products/new">
               + Add Product
-            </Link>
+            </Button>
           </div>
         </div>
 
@@ -245,7 +291,7 @@ export default function AdminProductsPage() {
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
             placeholder="Search by name, SKU, brand, category, tags..."
-            className="flex-1 min-w-[220px] bg-primary-light border border-white/15 rounded-md px-4 py-2.5 text-sm text-white placeholder-zinc-500 outline-none focus:border-accent transition-colors"
+            className="admin-input flex-1 min-w-[220px]"
           />
           <select value={sort} onChange={(e) => { setSort(e.target.value); setPage(1); }} className={inputCls}>
             <option value="newest" className="bg-primary">Newest first</option>
@@ -288,18 +334,21 @@ export default function AdminProductsPage() {
             <input type="number" className={`${inputCls} w-full`} placeholder="Max price" value={filters.maxPrice} onChange={(e) => setFilters((f) => ({ ...f, maxPrice: e.target.value }))} />
             <input type="date" className={`${inputCls} w-full`} value={filters.dateFrom} onChange={(e) => setFilters((f) => ({ ...f, dateFrom: e.target.value }))} />
             <input type="date" className={`${inputCls} w-full`} value={filters.dateTo} onChange={(e) => setFilters((f) => ({ ...f, dateTo: e.target.value }))} />
-            <label className="flex items-center gap-2 text-xs font-bold text-zinc-300">
-              <input type="checkbox" checked={filters.featured === "1"} onChange={(e) => setFilters((f) => ({ ...f, featured: e.target.checked ? "1" : "" }))} className="accent-[#f5a623] w-4 h-4" />
-              Featured only
-            </label>
-            <label className="flex items-center gap-2 text-xs font-bold text-zinc-300">
-              <input type="checkbox" checked={filters.hasVariants === "1"} onChange={(e) => setFilters((f) => ({ ...f, hasVariants: e.target.checked ? "1" : "" }))} className="accent-[#f5a623] w-4 h-4" />
-              Has variants
-            </label>
-            <label className="flex items-center gap-2 text-xs font-bold text-zinc-300">
-              <input type="checkbox" checked={filters.noImages === "1"} onChange={(e) => setFilters((f) => ({ ...f, noImages: e.target.checked ? "1" : "" }))} className="accent-[#f5a623] w-4 h-4" />
-              Missing images
-            </label>
+            <Checkbox
+              label="Featured only"
+              checked={filters.featured === "1"}
+              onChange={(on) => setFilters((f) => ({ ...f, featured: on ? "1" : "" }))}
+            />
+            <Checkbox
+              label="Has variants"
+              checked={filters.hasVariants === "1"}
+              onChange={(on) => setFilters((f) => ({ ...f, hasVariants: on ? "1" : "" }))}
+            />
+            <Checkbox
+              label="Missing images"
+              checked={filters.noImages === "1"}
+              onChange={(on) => setFilters((f) => ({ ...f, noImages: on ? "1" : "" }))}
+            />
             <div className="col-span-2 lg:col-span-2 text-right">
               <button onClick={() => setFilters(emptyFilters)} className="text-xs text-zinc-400 hover:text-red-400 font-bold">
                 Clear all filters
@@ -333,9 +382,9 @@ export default function AdminProductsPage() {
               <option value="draft" className="bg-primary">draft</option>
               <option value="private" className="bg-primary">private</option>
             </select>
-            <button onClick={() => bulk("setStatus", bulkStatus)} disabled={busy} className="bg-accent hover:bg-accent/80 text-primary text-xs font-bold px-3 py-2 rounded-md disabled:opacity-50">
+            <Button size="sm" onClick={() => bulk("setStatus", bulkStatus)} disabled={busy}>
               Set Status
-            </button>
+            </Button>
             <button onClick={() => { const c = window.prompt("New category name:"); if (c?.trim()) bulk("setCategory", c.trim()); }} disabled={busy} className="border border-white/15 text-zinc-300 hover:border-accent hover:text-accent text-xs font-bold px-3 py-2 rounded-md disabled:opacity-50">
               Set Category
             </button>
@@ -365,7 +414,11 @@ export default function AdminProductsPage() {
               <thead>
                 <tr className="text-zinc-400 border-b border-white/10">
                   <th className="p-4 w-10">
-                    <input type="checkbox" checked={products.length > 0 && selectedIds.length === products.length} onChange={toggleAll} className="accent-[#f5a623] w-4 h-4" />
+                    <Checkbox
+                      checked={products.length > 0 && selectedIds.length === products.length}
+                      onChange={toggleAll}
+                      aria-label="Select all products on this page"
+                    />
                   </th>
                   <th className="p-4 font-medium">Product</th>
                   <th className="p-4 font-medium">SKU</th>
@@ -381,7 +434,11 @@ export default function AdminProductsPage() {
                 {products.map((p) => (
                   <tr key={p._id} className={`border-b border-white/5 transition-colors ${selectedIds.includes(p._id) ? "bg-accent/5" : "hover:bg-white/5"}`}>
                     <td className="p-4">
-                      <input type="checkbox" checked={selectedIds.includes(p._id)} onChange={() => toggleOne(p._id)} className="accent-[#f5a623] w-4 h-4" />
+                      <Checkbox
+                        checked={selectedIds.includes(p._id)}
+                        onChange={() => toggleOne(p._id)}
+                        aria-label={`Select ${p.name}`}
+                      />
                     </td>
                     <td className="p-4">
                       <Link href={`/admin/products/${p._id}/edit`} className="flex items-center gap-3 group">
@@ -401,12 +458,37 @@ export default function AdminProductsPage() {
                       {p.discountPrice > 0 && <p className="text-[11px] text-zinc-500 line-through">{formatCurrency(p.price)}</p>}
                     </td>
                     <td className="p-4">
-                      {p.stock <= 0 ? (
-                        <span className="text-[11px] font-bold bg-red-500/15 text-red-400 px-2 py-1 rounded-full">Out of stock</span>
-                      ) : p.stock <= (p.lowStockThreshold ?? 5) ? (
-                        <span className="text-[11px] font-bold bg-accent/15 text-accent px-2 py-1 rounded-full">Low: {p.stock}</span>
+                      {/* click to edit — changing one number no longer means
+                          opening the whole product editor */}
+                      {stockEdit.id === p._id ? (
+                        <input
+                          autoFocus
+                          type="number"
+                          min="0"
+                          value={stockEdit.value}
+                          onChange={(e) => setStockEdit((s) => ({ ...s, value: e.target.value }))}
+                          onBlur={() => saveStock(p)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") e.currentTarget.blur();
+                            if (e.key === "Escape") setStockEdit({ id: null, value: "" });
+                          }}
+                          className="admin-input-sm w-20"
+                        />
                       ) : (
-                        <span className="text-[11px] font-bold bg-green-500/15 text-green-400 px-2 py-1 rounded-full">{p.stock}</span>
+                        <button
+                          onClick={() => setStockEdit({ id: p._id, value: String(p.stock ?? 0) })}
+                          title="Click to edit stock"
+                          disabled={savingStock === p._id}
+                          className={`inline-flex items-center justify-center min-w-6 h-6 text-[11px] font-bold px-2 rounded-full transition-opacity hover:opacity-80 disabled:opacity-50 ${
+                            p.stock <= 0
+                              ? "bg-rose-100 text-rose-700"
+                              : p.stock <= (p.lowStockThreshold ?? 5)
+                              ? "bg-amber-100 text-amber-800"
+                              : "bg-emerald-100 text-emerald-700"
+                          }`}
+                        >
+                          {savingStock === p._id ? "saving…" : p.stock <= 0 ? "Out of stock" : p.stock <= (p.lowStockThreshold ?? 5) ? `Low: ${p.stock}` : p.stock}
+                        </button>
                       )}
                     </td>
                     <td className="p-4">
@@ -451,8 +533,9 @@ export default function AdminProductsPage() {
               <button onClick={() => setImportOpen(false)} className="text-zinc-400 hover:text-white text-lg" aria-label="Close">✕</button>
             </div>
 
-            <a href="/api/products/import" className="inline-block text-xs text-accent hover:underline font-bold">
-              ⬇ Download CSV template
+            <a href="/api/products/import" className="inline-flex items-center gap-1.5 inline-block text-xs text-accent hover:underline font-bold">
+              <Icon name="download" size={15} />
+              Download CSV template
             </a>
 
             <div

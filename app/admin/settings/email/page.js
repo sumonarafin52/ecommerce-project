@@ -7,11 +7,15 @@ import PageHeader from "@/components/admin/ui/PageHeader";
 import { Field, Input, SaveBar } from "@/components/admin/ui/FormField";
 import Toggle from "@/components/admin/ui/Toggle";
 import usePermissions from "@/lib/usePermissions";
+import Checkbox from "@/components/admin/ui/Checkbox";
+import PermissionGate from "@/components/admin/ui/PermissionGate";
+import ErrorState from "@/components/admin/ui/ErrorState";
 
 const MASK = "••••••••";
 
 export default function EmailSettingsPage() {
-  const { can, loading: permLoading } = usePermissions();
+  const { can, loading: permLoading, failed: permFailed, refresh: refreshPermissions } = usePermissions();
+  const [loadError, setLoadError] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
@@ -19,6 +23,7 @@ export default function EmailSettingsPage() {
   const [email, setEmail] = useState(null);
 
   const load = () => {
+    setLoadError(false);
     setLoading(true);
     fetch("/api/settings", { cache: "no-store" })
       .then((r) => r.json())
@@ -26,8 +31,9 @@ export default function EmailSettingsPage() {
         if (res.success) {
           setEmail({ smtpPort: 587, smtpSecure: false, ...res.data.email });
           setDirty(false);
-        }
+        } else setLoadError(true);
       })
+      .catch(() => setLoadError(true))
       .finally(() => setLoading(false));
   };
 
@@ -76,9 +82,9 @@ export default function EmailSettingsPage() {
     setTesting(false);
   };
 
-  if (loading || permLoading || !email) {
+  if (!loadError && (loading || permLoading || !email)) {
     return (
-      <div className="max-w-3xl mx-auto px-4 lg:px-8 py-6">
+      <div className="max-w-5xl mx-auto px-4 lg:px-8 py-6">
         <div className="admin-card rounded-xl p-8 flex items-center justify-center">
           <div className="w-7 h-7 border-2 border-accent border-t-transparent rounded-full animate-spin" />
         </div>
@@ -86,16 +92,25 @@ export default function EmailSettingsPage() {
     );
   }
 
-  if (!can("settings")) {
+  if (permLoading || permFailed || !can("settings")) {
     return (
-      <div className="max-w-3xl mx-auto px-4 lg:px-8 py-6">
-        <p className="admin-text-secondary text-sm">You don&apos;t have permission to view this page.</p>
-      </div>
+      <PermissionGate
+        perm="settings"
+        what="store settings"
+        state={{ loading: permLoading, failed: permFailed, can, refresh: refreshPermissions }}
+      />
     );
   }
 
+
+  if (loadError) {
+
+    return <ErrorState what="email settings" onRetry={() => { setLoadError(false); load(); }} />;
+
+  }
+
   return (
-    <div className="max-w-3xl mx-auto px-4 lg:px-8 py-6 pb-24">
+    <div className="max-w-5xl mx-auto px-4 lg:px-8 py-6 pb-24">
       <PageHeader
         title="Email Notifications"
         description="Send order, payment, shipment and refund updates to customers by email via SMTP."
@@ -114,7 +129,7 @@ export default function EmailSettingsPage() {
 
         <div className="grid sm:grid-cols-2 gap-4 pt-2 border-t admin-border">
           <Field label="From name" hint="Shown as the sender name in the customer's inbox">
-            <Input placeholder="SumonMart" value={email.fromName} onChange={(e) => set({ fromName: e.target.value })} />
+            <Input placeholder="Your store name" value={email.fromName} onChange={(e) => set({ fromName: e.target.value })} />
           </Field>
           <Field label="From email">
             <Input placeholder="orders@yourstore.com" value={email.fromEmail} onChange={(e) => set({ fromEmail: e.target.value })} />
@@ -144,10 +159,11 @@ export default function EmailSettingsPage() {
           </Field>
         </div>
 
-        <label className="flex items-center gap-2.5 text-sm font-semibold admin-text-secondary cursor-pointer">
-          <input type="checkbox" checked={email.smtpSecure} onChange={(e) => set({ smtpSecure: e.target.checked })} className="w-4 h-4 accent-accent" />
-          Use SSL (port 465) — leave unchecked for STARTTLS on port 587
-        </label>
+        <Checkbox
+          label="Use SSL (port 465) — leave unchecked for STARTTLS on port 587"
+          checked={email.smtpSecure}
+          onChange={(on) => set({ smtpSecure: on })}
+        />
 
         <div className="pt-2 border-t admin-border">
           <button

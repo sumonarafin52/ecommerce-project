@@ -57,7 +57,7 @@ export async function POST(request) {
     // "invalid" — a reset link can never be used twice.
     const result = await User.updateOne(
       { _id: user._id, resetTokenHash: tokenHash, resetTokenExpires: { $gt: new Date() } },
-      { $set: { password: hashed, resetTokenHash: null, resetTokenExpires: null } }
+      { $set: { password: hashed, resetTokenHash: null, resetTokenExpires: null, passwordChangedAt: new Date() } }
     );
 
     if (result.modifiedCount !== 1) {

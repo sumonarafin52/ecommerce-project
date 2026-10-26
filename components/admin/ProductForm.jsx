@@ -4,19 +4,26 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { formatCurrency } from "@/lib/utils";
+import { productPath, slugify } from "@/lib/slug";
+import Checkbox from "@/components/admin/ui/Checkbox";
+import Toggle from "@/components/admin/ui/Toggle";
 
-const inputCls =
-  "w-full bg-white/5 border border-white/15 rounded-lg px-3.5 py-2.5 text-sm text-white placeholder-zinc-500 outline-none focus:border-accent focus:bg-white/[0.07] transition-all";
-const labelCls = "block text-[11px] font-bold text-zinc-300 mb-1.5 uppercase tracking-wider";
+const inputCls = "admin-input w-full";
+// Sentence case, not tracked-out capitals. This form has a label above
+// almost every field, and a wall of small capitals is slower to read than
+// ordinary words — which matters on the screen the shop owner uses most.
+// (text-zinc-300 was for the old dark admin.)
+const labelCls = "block text-[12px] font-semibold admin-text-secondary mb-1.5";
 
 const emptyForm = {
-  name: "", shortDescription: "", description: "",
+  name: "", slug: "", shortDescription: "", description: "",
   category: "", subcategory: "", brand: "", sku: "", weight: "",
   tags: [], price: "", discountPrice: "",
   stock: "", lowStockThreshold: "5",
   featured: false, status: "public",
   images: [], options: [], combinations: [],
   digitalProduct: "",
+  shippingRequirement: "auto",
 };
 
 const cartesian = (options, existing) => {
@@ -47,17 +54,15 @@ const formatBytes = (b) => {
   return `${(b / 1048576).toFixed(1)} MB`;
 };
 
+// Polaris-style card: flat white, plain semibold title. (Previously each
+// section had its own tinted gradient and a coloured icon tile, which read
+// as noisy next to the rest of the admin.) icon/iconBg/tint are accepted
+// but no longer rendered, so existing call sites needn't change.
+// eslint-disable-next-line no-unused-vars
 const Section = ({ icon, title, iconBg, tint, children, right }) => (
-  <section className={`relative bg-gradient-to-br ${tint} via-primary-light to-primary-light border border-white/10 rounded-2xl p-6 space-y-4`}>
+  <section className="admin-card rounded-xl p-5 space-y-4">
     <div className="flex items-center justify-between">
-      <h2 className="text-base font-extrabold text-white flex items-center gap-2.5">
-        <span className={`w-8 h-8 rounded-lg ${iconBg} flex items-center justify-center shadow-lg shrink-0`}>
-          <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" d={icon} />
-          </svg>
-        </span>
-        {title}
-      </h2>
+      <h2 className="text-[14px] font-semibold text-[#303030]">{title}</h2>
       {right}
     </div>
     {children}
@@ -76,7 +81,7 @@ export default function ProductForm({ initial }) {
   const [form, setForm] = useState(() =>
     initial
       ? {
-          name: initial.name || "", shortDescription: initial.shortDescription || "",
+          name: initial.name || "", slug: initial.slug || "", shortDescription: initial.shortDescription || "",
           description: initial.description || "", category: initial.category || "",
           subcategory: initial.subcategory || "", brand: initial.brand || "", sku: initial.sku || "",
           weight: initial.weight || "",
@@ -86,6 +91,7 @@ export default function ProductForm({ initial }) {
           featured: Boolean(initial.featured), status: initial.status || "public",
           images: initial.images || [], options: initial.options || [], combinations: initial.combinations || [],
           digitalProduct: initial.digitalProduct?._id || initial.digitalProduct || "",
+          shippingRequirement: initial.shippingRequirement || "auto",
         }
       : emptyForm
   );
@@ -230,6 +236,7 @@ export default function ProductForm({ initial }) {
         lowStockThreshold: Number(form.lowStockThreshold) || 5,
         weight: Number(form.weight) || 0,
         digitalProduct: form.digitalProduct || null,
+        shippingRequirement: form.shippingRequirement || "auto",
       };
       const res = await fetch(initial ? `/api/products/${initial._id}` : "/api/products", {
         method: initial ? "PUT" : "POST",
@@ -272,7 +279,7 @@ export default function ProductForm({ initial }) {
 
         {initial && (
           <a
-            href={`/products/${initial._id}`}
+            href={productPath(initial)}
             target="_blank"
             rel="noopener noreferrer"
             title={canViewLive ? "Open storefront page in new tab" : "Only public/unlisted products can be viewed"}
@@ -370,7 +377,7 @@ export default function ProductForm({ initial }) {
                         {i !== 0 && (
                           <button type="button" onClick={(e) => { e.stopPropagation(); setPrimary(i); }} className="text-[10px] font-bold text-accent hover:bg-accent/20 rounded px-1.5 py-1 transition-colors">★ Set as main</button>
                         )}
-                        <button type="button" onClick={(e) => { e.stopPropagation(); setForm((f) => ({ ...f, images: f.images.filter((_, x) => x !== i) })); }} className="text-[10px] font-bold text-rose-400 hover:bg-rose-500/20 rounded px-1.5 py-1 transition-colors">✕ Remove</button>
+                        <button type="button" onClick={(e) => { e.stopPropagation(); setForm((f) => ({ ...f, images: f.images.filter((_, x) => x !== i) })); }} className="text-[10px] font-bold text-rose-500 hover:bg-rose-500/10 rounded px-1.5 py-1 transition-colors">Remove</button>
                       </div>
                     </div>
                   ))}
@@ -398,7 +405,7 @@ export default function ProductForm({ initial }) {
             </div>
             {previewDiscount > 0 && (
               <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-lg px-4 py-3">
-                <span className="text-xs font-bold text-emerald-400">🎯 Customers save {previewDiscount}% ({formatCurrency(Number(form.price) - Number(form.discountPrice))})</span>
+                <span className="text-xs font-bold text-emerald-400">Customers save {previewDiscount}% ({formatCurrency(Number(form.price) - Number(form.discountPrice))})</span>
               </div>
             )}
           </Section>
@@ -474,17 +481,14 @@ export default function ProductForm({ initial }) {
                         <td className="p-3"><input className={`${inputCls} !w-28 !py-1.5`} value={c.sku} onChange={(e) => updateCombo(i, "sku", e.target.value)} /></td>
                         <td className="p-3"><input type="number" min="0" className={`${inputCls} !w-20 !py-1.5`} value={c.stock} onChange={(e) => updateCombo(i, "stock", Number(e.target.value))} /></td>
                         <td className="p-3">
-                          <label className="relative inline-flex items-center cursor-pointer">
-                            <input type="checkbox" checked={c.active} onChange={(e) => updateCombo(i, "active", e.target.checked)} className="sr-only peer" />
-                            <div className="w-9 h-5 bg-zinc-700 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-500"></div>
-                          </label>
+                          <Toggle checked={c.active} onChange={(on) => updateCombo(i, "active", on)} />
                         </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
                 <input ref={comboFileRef} type="file" accept="image/*" className="hidden" onChange={(e) => { uploadComboImage(e.target.files?.[0]); e.target.value = ""; }} />
-                <p className="text-[11px] text-zinc-500 p-3 bg-black/10 border-t border-white/5">💡 Price 0 = base price • Photo upload korle storefront e variant select er somoy oi photo dekhabe</p>
+                <p className="text-[11px] text-zinc-500 p-3 bg-black/10 border-t border-white/5">Price 0 = use the base price • A variant photo is shown when a shopper selects that variant</p>
               </div>
             )}
 
@@ -508,10 +512,36 @@ export default function ProductForm({ initial }) {
               </select>
               {attachedDigital && (
                 <p className="text-[11px] text-cyan-300 bg-cyan-500/10 border border-cyan-500/30 rounded-md px-3 py-2">
-                  ⚡ Customer payment er por <b>{attachedDigital.title}</b> download korte parbe
+                  ⚡ Customers can download <b>{attachedDigital.title}</b> once they&apos;ve paid
                 </p>
               )}
-              <p className="text-[11px] text-zinc-500">Digital product manage korte sidebar e <b>Products → Digital Products</b> e jan</p>
+
+              {/* Controls whether checkout asks for a delivery address and
+                  charges shipping. "Automatic" is right for almost
+                  everything; the overrides cover a book sold with its ebook
+                  (ships anyway) and a service or gift card (never ships). */}
+              <div>
+                <label className={labelCls}>
+                  Shipping
+                </label>
+                <select className={inputCls} value={form.shippingRequirement} onChange={set("shippingRequirement")}>
+                  <option value="auto" className="bg-primary">
+                    Automatic — ship unless a digital file is attached
+                  </option>
+                  <option value="always" className="bg-primary">
+                    Always ship (physical item that also includes a download)
+                  </option>
+                  <option value="never" className="bg-primary">
+                    Never ship (service, booking, gift card)
+                  </option>
+                </select>
+                <p className="text-[11px] text-zinc-500 mt-1">
+                  {form.shippingRequirement === "never" || (form.shippingRequirement === "auto" && form.digitalProduct)
+                    ? "Checkout won't ask for a delivery address or add a shipping charge for a cart of only these."
+                    : "Checkout will ask for a delivery address and quote shipping."}
+                </p>
+              </div>
+              <p className="text-[11px] text-zinc-500">Manage downloadable files in <b>Products → Digital Products</b></p>
             </div>
           </Section>
         </div>
@@ -542,8 +572,15 @@ export default function ProductForm({ initial }) {
                     <span className="text-base font-extrabold text-accent">{formatCurrency(Number(form.discountPrice) || Number(form.price) || 0)}</span>
                     {previewDiscount > 0 && <span className="text-[11px] text-zinc-500 line-through">{formatCurrency(Number(form.price))}</span>}
                   </div>
-                  <p className={`text-[10px] font-bold ${Number(form.stock) <= 0 ? "text-rose-400" : "text-emerald-400"}`}>
-                    {form.stock === "" ? "Stock not set" : Number(form.stock) <= 0 ? "Out of stock" : `In stock (${form.stock})`}
+                  {/* An empty stock field on a form nobody has filled in yet
+                      is not an error, so it is not coloured like one — it
+                      only becomes a warning once a number says zero. */}
+                  <p
+                    className={`text-[10px] font-bold ${
+                      form.stock === "" ? "admin-text-muted" : Number(form.stock) <= 0 ? "text-rose-500" : "text-emerald-600"
+                    }`}
+                  >
+                    {form.stock === "" ? "Stock not set yet" : Number(form.stock) <= 0 ? "Out of stock" : `In stock (${form.stock})`}
                   </p>
                 </div>
               </div>
@@ -551,7 +588,7 @@ export default function ProductForm({ initial }) {
           )}
 
           <Section icon="M15 12a3 3 0 11-6 0 3 3 0 016 0z" title="Status" iconBg="bg-emerald-500" tint="from-emerald-500/10"
-            right={form.featured && <span className="text-[10px] font-extrabold bg-gradient-to-r from-accent to-orange-500 text-primary px-2 py-1 rounded-md">⭐ FEATURED</span>}
+            right={form.featured && <span className="text-[10px] font-extrabold bg-gradient-to-r from-accent to-orange-500 text-primary px-2 py-1 rounded-md">Featured</span>}
           >
             <div className="grid grid-cols-2 gap-2">
               {statusOptions.map((s) => (
@@ -562,18 +599,21 @@ export default function ProductForm({ initial }) {
                       <path strokeLinecap="round" strokeLinejoin="round" d={s.icon} />
                     </svg>
                   </div>
-                  <p className="text-xs font-extrabold text-white">{s.label}</p>
-                  <p className="text-[10px] text-zinc-400 mt-0.5">{s.desc}</p>
+                  {/* admin-text-*, not text-white: this form predates the
+                      admin becoming a light theme, and a white label on the
+                      selected card's 10% tint measured 2.54:1. */}
+                  <p className="text-xs font-bold admin-text-primary">{s.label}</p>
+                  <p className="text-[10px] admin-text-muted mt-0.5">{s.desc}</p>
                 </button>
               ))}
             </div>
-            <label className="flex items-center gap-3 pt-2 cursor-pointer group">
-              <input type="checkbox" checked={form.featured} onChange={(e) => setForm((f) => ({ ...f, featured: e.target.checked }))} className="accent-[#f5a623] w-4 h-4" />
-              <div>
-                <p className="text-xs font-bold text-white group-hover:text-accent transition-colors">Show on homepage</p>
-                <p className="text-[10px] text-zinc-500">Feature this product on the store front</p>
-              </div>
-            </label>
+            <Checkbox
+              className="pt-2"
+              checked={form.featured}
+              onChange={(on) => setForm((f) => ({ ...f, featured: on }))}
+              label={<span className="text-xs font-bold">Show on homepage</span>}
+              hint="Feature this product on the store front"
+            />
           </Section>
 
           <Section icon="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" title="Organization" iconBg="bg-sky-500" tint="from-sky-500/10">
@@ -608,7 +648,7 @@ export default function ProductForm({ initial }) {
             <div>
               <label className={labelCls}>SKU</label>
               <input className={inputCls} value={form.sku} onChange={set("sku")} placeholder="Auto: SA-SKU-1, SA-SKU-2..." />
-              <p className="text-[11px] text-zinc-500 mt-1">Faka rakhle automatic unique SKU generate hobe</p>
+              <p className="text-[11px] text-zinc-500 mt-1">Leave empty to generate a unique SKU automatically</p>
             </div>
             <div>
               <label className={labelCls}>Weight (kg)</label>
@@ -632,14 +672,32 @@ export default function ProductForm({ initial }) {
               <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg px-3 py-2"><span className="text-[11px] font-bold text-amber-400">⚠️ Low stock warning</span></div>
             )}
             {form.stock !== "" && Number(form.stock) <= 0 && (
-              <div className="bg-rose-500/10 border border-rose-500/30 rounded-lg px-3 py-2"><span className="text-[11px] font-bold text-rose-400">🚫 Out of stock</span></div>
+              <div className="bg-rose-500/10 border border-rose-500/30 rounded-lg px-3 py-2"><span className="text-[11px] font-bold text-rose-400">Out of stock</span></div>
             )}
           </Section>
 
           <Section icon="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" title="SEO & Tags" iconBg="bg-pink-500" tint="from-pink-500/10">
+            <div>
+              <label className={labelCls}>URL</label>
+              <div className="flex items-center gap-1">
+                <span className="text-[11px] text-zinc-500 shrink-0">/products/</span>
+                <input
+                  className={inputCls}
+                  value={form.slug}
+                  onChange={set("slug")}
+                  placeholder={slugify(form.name) || "made-from-the-title"}
+                />
+              </div>
+              <p className="text-[11px] text-zinc-500 mt-1">
+                {initial?.slug
+                  ? "Changing this breaks any link already shared to the old address."
+                  : "Leave blank to build it from the title."}
+              </p>
+            </div>
+
             <div className="flex gap-2">
               <input className={inputCls} value={tagInput} onChange={(e) => setTagInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addTag(); } }} placeholder="Type & press Enter" />
-              <button type="button" onClick={addTag} className="bg-pink-500 hover:bg-pink-400 text-white text-xs font-extrabold px-4 rounded-lg transition-colors">+</button>
+              <button type="button" onClick={addTag} aria-label="Add tag" className="bg-[#303030] hover:bg-[#1A1A1A] text-white text-xs font-bold px-4 rounded-lg transition-colors">Add</button>
             </div>
             {form.tags.length > 0 ? (
               <div className="flex flex-wrap gap-1.5">
@@ -658,7 +716,7 @@ export default function ProductForm({ initial }) {
       </div>
 
       {/* ===== STICKY SAVE BAR ===== */}
-      <div className="sticky bottom-0 py-4 bg-gradient-to-t from-primary via-primary to-primary/95 border-t border-white/10 backdrop-blur-sm z-20">
+      <div className="sticky bottom-0 z-20 -mx-4 lg:-mx-8 px-4 lg:px-8 py-3 bg-white/95 backdrop-blur border-t border-[#E3E3E3] shadow-[0_-1px_0_rgba(26,26,26,0.04)]">
         <div className="flex gap-3 items-center justify-between">
           <div className="text-xs text-zinc-400 hidden sm:block">
             {initial ? <span>Editing: <span className="font-bold text-white">{initial.name}</span></span> : <span>Creating a new product</span>}
@@ -666,7 +724,7 @@ export default function ProductForm({ initial }) {
           <div className="flex gap-3 flex-1 sm:flex-none justify-end">
             <button onClick={() => router.push("/admin/products")} className="px-6 border border-white/15 text-zinc-300 hover:border-white/40 hover:bg-white/5 font-bold py-2.5 rounded-lg transition-colors">Cancel</button>
             <button onClick={save} disabled={saving} className="bg-gradient-to-r from-accent to-orange-500 hover:from-accent/90 hover:to-orange-500/90 text-primary font-extrabold px-6 py-2.5 rounded-lg transition-all disabled:opacity-50 shadow-glow min-w-[160px]">
-              {saving ? "Saving..." : initial ? "✓ Save Changes" : "✨ Create Product"}
+              {saving ? "Saving…" : initial ? "Save changes" : "Create product"}
             </button>
           </div>
         </div>

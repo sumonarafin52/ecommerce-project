@@ -1,6 +1,19 @@
+# dependencies & build output
 node_modules/
 .next/
-.env
-.env.local
-.DS_Store
+out/
+build/
+coverage/
+
+# secrets — block EVERY env file (.env.production, .env.development.local, ...)
+# but keep the template, which contains no real values
+.env*
+!.env.example
+
+# logs & OS junk
+*.log
 npm-debug.log*
+.DS_Store
+Thumbs.db
+.vscode/*
+!.vscode/extensions.json

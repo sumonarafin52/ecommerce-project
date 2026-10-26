@@ -4,10 +4,14 @@ import connectDB from "@/lib/db";
 import Product from "@/models/Product";
 import Category from "@/models/Category";
 import Settings from "@/models/Settings";
+import { getStorefrontCategories } from "@/lib/categories";
+import { categoryIcon } from "@/lib/categoryIcons";
+import Icon from "@/components/ui/Icon";
 import HeroSlider from "@/components/ui/HeroSlider";
 import ProductGrid from "@/components/product/ProductGrid";
+import ProductCard from "@/components/product/ProductCard";
 import RecommendedGrid from "@/components/product/RecommendedGrid";
-import { getEffectivePrice, getTotalStock } from "@/lib/utils";
+import { getEffectivePrice, getTotalStock, getDiscountPercentage } from "@/lib/utils";
 
 // Resolves one admin-configured homepage section (Settings → General →
 // Homepage Sections) into { title, buttonText, buttonLink, products }.
@@ -52,49 +56,38 @@ async function resolveSection(section, products) {
 
 export const dynamic = "force-dynamic";
 
-// Trim a showcase to whole rows of the 4-column desktop grid (max 8), so a
-// section never ends with a lone orphan card. Short lists are left as-is.
-function fullRows(list, perRow = 4, max = 8) {
-  const capped = list.slice(0, max);
-  if (capped.length <= perRow) return capped;
-  return capped.slice(0, capped.length - (capped.length % perRow));
+// Cap a showcase at a size that divides evenly into the responsive grid.
+function fullRows(list, max = 12) {
+  // 12 divides evenly into the 2-, 3-, 4- and 6-column layouts the grid
+  // uses at different screen widths, so a full showcase never leaves an
+  // orphan card at those sizes.
+  return list.slice(0, max);
 }
 
-// Icon for a category tile when the admin hasn't uploaded an image,
-// matched on common keywords (English and Bangla).
-const CATEGORY_ICONS = [
-  [/electr|phone|mobile|gadget|laptop|computer|ইলেক/i, "📱"],
-  [/fashion|cloth|wear|dress|saree|panjabi|shirt|পোশাক/i, "👗"],
-  [/shoe|footwear|জুতা/i, "👟"],
-  [/home|kitchen|furnitur|decor|ঘর/i, "🏠"],
-  [/beauty|cosmetic|skin|makeup|care|সৌন্দর্য/i, "💄"],
-  [/grocer|food|rice|snack|খাদ্য|মুদি/i, "🛒"],
-  [/baby|kid|toy|শিশু/i, "🧸"],
-  [/sport|fitness|gym|খেলা/i, "⚽"],
-  [/book|station|বই/i, "📚"],
-  [/health|medic|pharma|স্বাস্থ্য/i, "💊"],
-  [/jewel|watch|access|গহনা/i, "⌚"],
-  [/pet|পোষা/i, "🐾"],
-];
-const categoryIcon = (name = "") => (CATEGORY_ICONS.find(([re]) => re.test(name)) || [null, "🛍️"])[1];
 
+// The four things a first-time buyer wants to know before paying cash at
+// their door. Each one is a fact, not a slogan.
 const perks = [
-  { title: "Nationwide Delivery", sub: "To all 64 districts", icon: "M3 7h11v8H3V7zm11 3h4l3 3v2h-7v-5zM7 19a2 2 0 100-4 2 2 0 000 4zm10 0a2 2 0 100-4 2 2 0 000 4z" },
-  { title: "Secure Payment", sub: "Cash on delivery or online", icon: "M12 2l8 4v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6l8-4z" },
-  { title: "Easy Returns", sub: "7-day return policy", icon: "M4 4v6h6M20 20v-6h-6M4 10a8 8 0 0114-4M20 14a8 8 0 01-14 4" },
-  { title: "Real Support", sub: "Message us — a person replies", icon: "M4 12a8 8 0 0116 0v5a2 2 0 01-2 2h-2v-6h4M4 12v5a2 2 0 002 2h2v-6H4" },
+  { title: "Delivered nationwide", sub: "Every one of the 64 districts", icon: "truck" },
+  { title: "Pay when it arrives", sub: "Cash on delivery or online", icon: "shield" },
+  { title: "7 days to return it", sub: "Changed your mind is a reason", icon: "returns" },
+  { title: "A person replies", sub: "Not a bot, not a queue", icon: "headset" },
 ];
 
-function SectionTitle({ title, href, label, eyebrow }) {
+// The eyebrow is gone on purpose: a tracked-out capital label above every
+// heading is decoration pretending to be structure, and it pushed the real
+// heading down the page. The arrow after the link is gone for the same
+// reason — a link already looks like a link.
+function SectionTitle({ title, href, label }) {
   return (
-    <div className="flex items-end justify-between mb-5">
-      <div>
-        {eyebrow && <span className="block text-xs font-bold uppercase tracking-wide text-gold-dark mb-1.5">{eyebrow}</span>}
-        <h2 className="font-display text-2xl font-semibold text-indigo-950">{title}</h2>
-      </div>
+    <div className="flex items-baseline justify-between gap-4 mb-5">
+      <h2 className="font-display text-2xl font-semibold text-indigo-950">{title}</h2>
       {href && (
-        <Link href={href} className="text-[13.5px] font-bold text-indigo-900 border-b-2 border-gold pb-0.5 shrink-0">
-          {label || "See all"} →
+        <Link
+          href={href}
+          className="text-[13.5px] font-semibold text-indigo-900 underline decoration-gold decoration-2 underline-offset-[6px] hover:decoration-indigo-900 transition-colors duration-ui ease-ui shrink-0"
+        >
+          {label || "See all"}
         </Link>
       )}
     </div>
@@ -105,10 +98,22 @@ export default async function HomePage() {
   await connectDB();
   const raw = await Product.find({ status: "public" }).sort({ createdAt: -1 }).limit(60).lean();
   const products = JSON.parse(JSON.stringify(raw));
-  const rawCategories = await Category.find().sort({ order: 1, name: 1 }).limit(8).lean();
+  const rawCategories = await getStorefrontCategories(12);
+  const countRows = await Product.aggregate([
+    { $match: { status: "public" } },
+    { $group: { _id: { $toLower: { $trim: { input: { $ifNull: ["$category", ""] } } } }, n: { $sum: 1 } } },
+  ]);
+  const categoryCounts = Object.fromEntries(countRows.map((r) => [r._id, r.n]));
   const categories = JSON.parse(JSON.stringify(rawCategories));
 
   const settingsDoc = await Settings.findOne().lean().catch(() => null);
+  const storeName = settingsDoc?.general?.storeName || "Online Store";
+  const siteUrl = (process.env.NEXTAUTH_URL || "").replace(/\/$/, "");
+  // describe only the payment options checkout really offers
+  const codOn = settingsDoc?.payment?.cod ? settingsDoc.payment.cod.enabled !== false : true;
+  const onlineOn = !!settingsDoc?.payment?.sslcommerz?.enabled;
+  const paymentLine =
+    codOn && onlineOn ? "Cash on delivery or online" : onlineOn ? "bKash, Nagad & cards" : "Cash on delivery";
   const homepage = settingsDoc?.homepage || {};
   const heroSlides = homepage.heroSlides || [];
   const activeBanners = (homepage.banners || []).filter((b) => b.active !== false).sort((a, b) => a.order - b.order);
@@ -122,33 +127,80 @@ export default async function HomePage() {
   const buyable = products.filter((p) => getTotalStock(p) > 0);
   const sliderProducts = [...buyable].sort((a, b) => b.ratingAvg - a.ratingAvg).slice(0, 5);
   const deals = fullRows(buyable.filter((p) => p.discountPrice > 0 && p.discountPrice < p.price));
+  const maxDealPct = deals.reduce((m, p) => Math.max(m, getDiscountPercentage(p)), 0);
   const topSelling = fullRows([...buyable].sort((a, b) => b.numReviews - a.numReviews));
   const newArrivals = products.slice(0, 8);
 
   return (
     <div className="bg-cream-bg min-h-screen font-body2">
-      <div className="max-w-7xl mx-auto px-4 pt-6 space-y-14 pb-14">
+      {/* Tells search engines what this store is, and enables the
+          search box Google can show under the store's name in results. */}
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify([
+            {
+              "@context": "https://schema.org",
+              "@type": "WebSite",
+              name: storeName,
+              url: siteUrl || undefined,
+              potentialAction: {
+                "@type": "SearchAction",
+                target: { "@type": "EntryPoint", urlTemplate: `${siteUrl}/products?search={search_term_string}` },
+                "query-input": "required name=search_term_string",
+              },
+            },
+            {
+              "@context": "https://schema.org",
+              "@type": "Organization",
+              name: storeName,
+              url: siteUrl || undefined,
+              logo: settingsDoc?.general?.storeLogo || undefined,
+              email: settingsDoc?.general?.storeEmail || undefined,
+              telephone: settingsDoc?.general?.storePhone || undefined,
+            },
+          ]).replace(/</g, "\\u003c"),
+        }}
+      />
+      <div className="max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-8 2xl:px-12 pt-6 space-y-14 pb-14">
         <HeroSlider products={sliderProducts} customSlides={heroSlides} />
 
         {/* categories */}
         {categories.length > 0 && (
           <section>
-            <SectionTitle title="Explore Popular Categories" href="/products" label="View All" />
-            <div className="flex gap-6 overflow-x-auto pb-1.5">
-              {categories.map((c) => (
-                <Link key={c._id} href={`/products?category=${encodeURIComponent(c.name)}`} className="shrink-0 text-center w-28 group">
-                  <div className="w-28 h-28 rounded-full overflow-hidden bg-cream-alt border border-line group-hover:border-gold group-hover:shadow-premium transition-all duration-300">
-                    {c.image ? (
-                      <img src={c.image} alt={c.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center text-[42px] bg-gradient-to-br from-cream-white to-gold-light/70 group-hover:scale-110 transition-transform duration-300">
-                        <span aria-hidden="true">{categoryIcon(c.name)}</span>
-                      </div>
-                    )}
-                  </div>
-                  <span className="block mt-2.5 text-[13.5px] font-bold text-ink">{c.name}</span>
-                </Link>
-              ))}
+            <SectionTitle title="Shop by category" href="/products" label="All products" />
+            {/* auto-fill with a 1fr max: with few categories the cards
+                stretch to fill the row instead of huddling in one corner;
+                with many they wrap into an even grid */}
+            <div className="grid gap-3 sm:gap-4 grid-cols-2 sm:grid-cols-[repeat(auto-fit,minmax(190px,1fr))]">
+              {categories.map((c) => {
+                const count = categoryCounts[c.name.trim().toLowerCase()] || 0;
+                return (
+                  <Link
+                    key={c._id}
+                    href={`/products?category=${encodeURIComponent(c.name)}`}
+                    className="group flex items-center gap-2.5 sm:gap-3.5 bg-cream-white border border-line rounded-r-md p-2.5 sm:p-4 shadow-e1 transition-[border-color,box-shadow] duration-ui ease-ui hover:border-gold hover:shadow-e2"
+                  >
+                    <div className="w-11 h-11 sm:w-14 sm:h-14 shrink-0 rounded-r-sm overflow-hidden bg-cream-alt flex items-center justify-center">
+                      {c.image ? (
+                        <img src={c.image} alt="" className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300" />
+                      ) : (
+                        <Icon
+                          name={categoryIcon(c.name)}
+                          size={26}
+                          className="text-indigo-950 sm:w-8 sm:h-8"
+                        />
+                      )}
+                    </div>
+                    <div className="min-w-0">
+                      <span className="block text-[13.5px] sm:text-[15px] font-bold text-ink leading-snug line-clamp-2 group-hover:text-indigo-900">{c.name}</span>
+                      <span className="block text-[12px] text-ink-muted mt-0.5 tabular-nums">
+                        {count > 0 ? `${count} ${count === 1 ? "item" : "items"}` : "Coming soon"}
+                      </span>
+                    </div>
+                  </Link>
+                );
+              })}
             </div>
           </section>
         )}
@@ -173,33 +225,75 @@ export default async function HomePage() {
           </div>
         )}
 
-        {/* trust strip */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 border-y border-line py-6">
-          {perks.map((p) => (
-            <div key={p.title} className="flex items-start gap-3">
-              <span className="w-10 h-10 rounded-lg bg-indigo-100 text-indigo-900 flex items-center justify-center shrink-0">
-                <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d={p.icon} />
-                </svg>
-              </span>
-              <div>
-                <p className="text-[13.5px] font-bold text-ink">{p.title}</p>
-                <p className="text-[12.5px] text-ink-muted mt-0.5">{p.sub}</p>
+        {/* One band divided by rules, not four identical cards: these are
+            four facts about a single promise, not four separate offers. */}
+        <div className="border-y border-line">
+          <div className="grid grid-cols-2 lg:grid-cols-4 divide-y divide-line lg:divide-y-0 lg:divide-x">
+            {perks.map((p) => (p.title === "Pay when it arrives" ? { ...p, sub: paymentLine } : p)).map((p) => (
+              <div key={p.title} className="flex items-start gap-3 py-5 lg:px-6 lg:first:pl-0 lg:last:pr-0">
+                <Icon name={p.icon} size={20} className="text-gold-dark shrink-0 mt-[3px]" />
+                <div className="min-w-0">
+                  <p className="text-[13.5px] font-bold text-ink leading-snug">{p.title}</p>
+                  <p className="text-[12.5px] text-ink-muted mt-1 leading-snug">{p.sub}</p>
+                </div>
               </div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
 
         {showDeals && deals.length > 0 && (
-          <section>
-            <SectionTitle eyebrow="Limited time" title="Today's Deals" href="/products?deals=1" label="See all deals" />
-            <ProductGrid products={deals} />
+          // Adaptive deals band. With only a few deals the promo panel grows
+          // to fill the row (instead of leaving a mostly-empty grid); with
+          // many, it stays compact and the products scroll sideways.
+          <section className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-indigo-950 via-indigo-900 to-indigo-700 p-5 sm:p-8">
+            <div className="absolute -right-20 -top-24 w-80 h-80 rounded-full bg-gold/10 blur-2xl" aria-hidden="true" />
+            <div className="absolute -left-10 -bottom-28 w-72 h-72 rounded-full bg-white/5 blur-2xl" aria-hidden="true" />
+            <div className="relative flex flex-col lg:flex-row gap-6 lg:items-stretch">
+              <div
+                className={`relative text-white flex flex-col justify-center shrink-0 ${
+                  deals.length <= 3 ? "lg:flex-1" : "lg:w-[300px]"
+                }`}
+              >
+                {/* when stretched, a large faint figure gives the open space a purpose */}
+                {deals.length <= 3 && maxDealPct > 0 && (
+                  <span
+                    className="hidden lg:block absolute right-[6%] top-1/2 -translate-y-1/2 font-display font-bold leading-none text-[180px] 2xl:text-[230px] text-white/[0.06] select-none pointer-events-none"
+                    aria-hidden="true"
+                  >
+                    -{maxDealPct}%
+                  </span>
+                )}
+                <span className="text-[12px] font-extrabold uppercase tracking-[0.14em] text-gold">On sale now</span>
+                <h2 className="font-display text-3xl sm:text-4xl font-semibold mt-2 leading-tight">Today&apos;s Deals</h2>
+                {maxDealPct > 0 && (
+                  <p className="mt-3 text-white/85 text-[15px]">
+                    Save up to <span className="font-display text-2xl font-bold text-gold">{maxDealPct}%</span>{" "}
+                    across {deals.length} {deals.length === 1 ? "item" : "items"}
+                  </p>
+                )}
+                <Link
+                  href="/products?deals=1"
+                  className="mt-6 self-start bg-gold hover:bg-gold-dark text-indigo-950 font-bold px-6 py-3 rounded-full text-sm transition-colors"
+                >
+                  See all deals →
+                </Link>
+              </div>
+              <div className={`min-w-0 ${deals.length <= 3 ? "" : "flex-1"}`}>
+                <div className="flex gap-4 overflow-x-auto no-scrollbar snap-x snap-mandatory pb-1 -mx-1 px-1">
+                  {deals.map((p) => (
+                    <div key={p._id} className="w-[200px] sm:w-[230px] 2xl:w-[250px] shrink-0 snap-start">
+                      <ProductCard product={p} />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
           </section>
         )}
 
         {showBestSellers && topSelling.length > 0 && (
           <section>
-            <SectionTitle eyebrow="Trending" title="Best Sellers" href="/products?sort=top" label="See all" />
+            <SectionTitle title="Best Sellers" href="/products?sort=top" label="See all" />
             <ProductGrid products={topSelling} />
           </section>
         )}

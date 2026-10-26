@@ -6,9 +6,12 @@ import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import usePermissions from "@/lib/usePermissions";
+import Checkbox from "@/components/admin/ui/Checkbox";
+import Button from "@/components/admin/ui/Button";
+import PermissionGate from "@/components/admin/ui/PermissionGate";
+import ErrorState from "@/components/admin/ui/ErrorState";
 
-const inputCls =
-  "bg-primary border border-white/15 rounded-md px-3 py-2 text-sm text-white placeholder-zinc-500 outline-none focus:border-accent transition-colors";
+const inputCls = "admin-input";
 
 const ROLE_OPTIONS = [
   { value: "customer", label: "Customer", desc: "Shop only — no admin access" },
@@ -20,10 +23,11 @@ const ROLE_OPTIONS = [
 
 export default function AdminCustomersPage() {
   const { data: session, status } = useSession();
-  const { can, loading: permLoading, roles, catalog, refresh } = usePermissions();
+  const { can, loading: permLoading, failed: permFailed, refresh: refreshPermissions, roles, catalog, refresh } = usePermissions();
+
+  const [loadError, setLoadError] = useState(false);
 
   const [users, setUsers] = useState([]);
-  const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [edit, setEdit] = useState(null);
@@ -36,15 +40,18 @@ export default function AdminCustomersPage() {
   const isAdmin = session?.user?.role !== "customer";
 
   const load = () => {
-    Promise.all([
-      fetch("/api/users").then((r) => r.json()),
-      fetch("/api/orders").then((r) => r.json()),
-    ])
-      .then(([uRes, oRes]) => {
+    // Order count and lifetime spend now come with each user, aggregated
+    // over all their orders. This page used to also fetch /api/orders and
+    // tally it here — but that returns only the newest 100 orders, so most
+    // customers were shown as having never ordered.
+    setLoadError(false);
+    fetch("/api/users")
+      .then((r) => r.json())
+      .then((uRes) => {
         if (uRes.success) setUsers(uRes.data);
-        if (oRes.success) setOrders(Array.isArray(oRes.data) ? oRes.data : oRes.data.orders || []);
+        else setLoadError(true);
       })
-      .catch(() => {})
+      .catch(() => setLoadError(true))
       .finally(() => setLoading(false));
   };
 
@@ -62,17 +69,6 @@ export default function AdminCustomersPage() {
       setRolePerms(init);
     }
   }, [roles]);
-
-  const stats = useMemo(() => {
-    const map = {};
-    orders.forEach((o) => {
-      const id = String(o.user?._id || o.user);
-      if (!map[id]) map[id] = { count: 0, spent: 0 };
-      map[id].count += 1;
-      if (o.paymentStatus === "paid") map[id].spent += o.totalAmount || 0;
-    });
-    return map;
-  }, [orders]);
 
   const visible = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -140,16 +136,19 @@ export default function AdminCustomersPage() {
     );
   }
 
-  if (!session || !can("customers")) {
+  if (!session || permLoading || permFailed || !can("customers")) {
     return (
-      <div className="bg-primary min-h-screen flex flex-col items-center justify-center gap-4 text-center px-4">
-        <p className="text-xl font-bold text-white">Access denied</p>
-        <p className="text-sm text-zinc-400">Your role does not allow viewing customers.</p>
-        <Link href="/" className="bg-accent hover:bg-accent/80 text-primary font-bold px-6 py-3 rounded-md transition-colors">
-          Back to home
-        </Link>
-      </div>
+      <PermissionGate
+        perm="customers"
+        what="customer accounts"
+        signedIn={!!session}
+        state={{ loading: permLoading, failed: permFailed, can, refresh: refreshPermissions }}
+      />
     );
+  }
+
+  if (loadError) {
+    return <ErrorState what="customers" onRetry={() => { setLoadError(false); load(); }} />;
   }
 
   const selectedRoleInfo = edit ? (roles || []).find((r) => r.role === edit.role) : null;
@@ -168,7 +167,7 @@ export default function AdminCustomersPage() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search by name or email..."
-              className="w-full sm:w-80 bg-primary-light border border-white/15 rounded-md px-4 py-2.5 text-sm text-white placeholder-zinc-500 outline-none focus:border-accent transition-colors"
+              className="admin-input w-full sm:w-80"
             />
           </div>
 
@@ -189,7 +188,7 @@ export default function AdminCustomersPage() {
                 </thead>
                 <tbody>
                   {visible.map((u) => {
-                    const s = stats[String(u._id)] || { count: 0, spent: 0 };
+                    const s = { count: u.orderCount || 0, spent: u.spent || 0 };
                     return (
                       <tr key={u._id} className="border-b border-white/5 hover:bg-white/5 transition-colors">
                         <td className="p-4">
@@ -198,7 +197,7 @@ export default function AdminCustomersPage() {
                               {u.name?.charAt(0).toUpperCase()}
                             </div>
                             <div>
-                              <p className="font-bold text-white">{u.name}</p>
+                              <Link href={`/admin/customers/${u._id}`} className="font-bold admin-text-primary hover:text-accent">{u.name}</Link>
                               <p className="text-xs text-zinc-500">{u.email}</p>
                             </div>
                           </div>
@@ -254,7 +253,7 @@ export default function AdminCustomersPage() {
                 Roles & Access
               </h2>
               <p className="text-xs text-zinc-400 mt-1">
-                Checkbox diye each role er access control korun. Admin role always full access.
+                Choose what each staff role can access. Admins always have full access.
               </p>
             </div>
 
@@ -274,29 +273,21 @@ export default function AdminCustomersPage() {
 
                     <div className="space-y-1.5">
                       {catalog.map((p) => (
-                        <label key={p.key} className="flex items-start gap-2 cursor-pointer group">
-                          <input
-                            type="checkbox"
-                            checked={(rolePerms[r.role] || []).includes(p.key)}
-                            onChange={() => togglePerm(r.role, p.key)}
-                            className="accent-[#f5a623] w-4 h-4 mt-0.5"
-                          />
-                          <span>
-                            <span className="block text-xs font-bold text-zinc-200 group-hover:text-accent transition-colors">{p.label}</span>
-                            <span className="block text-[10px] text-zinc-500">{p.desc}</span>
-                          </span>
-                        </label>
+                        <Checkbox
+                          key={p.key}
+                          checked={(rolePerms[r.role] || []).includes(p.key)}
+                          onChange={() => togglePerm(r.role, p.key)}
+                          label={p.label}
+                          hint={p.desc}
+                          block
+                        />
                       ))}
                     </div>
 
                     <div className="flex gap-2 pt-1">
-                      <button
-                        onClick={() => saveRole(r.role)}
-                        disabled={savingRole === r.role}
-                        className="flex-1 bg-accent hover:bg-accent/80 text-primary text-xs font-bold py-2 rounded-md transition-colors disabled:opacity-50"
-                      >
+                      <Button size="sm" className="flex-1" onClick={() => saveRole(r.role)} disabled={savingRole === r.role}>
                         {savingRole === r.role ? "Saving..." : "Save Access"}
-                      </button>
+                      </Button>
                       <button
                         onClick={() => resetRole(r.role)}
                         className="text-[11px] text-zinc-400 hover:text-white border border-white/15 rounded-md px-2 transition-colors"
@@ -366,9 +357,9 @@ export default function AdminCustomersPage() {
               )}
             </div>
 
-            <button type="submit" disabled={saving} className="w-full bg-accent hover:bg-accent/80 text-primary font-bold py-3 rounded-md transition-colors disabled:opacity-50">
+            <Button full type="submit" disabled={saving}>
               {saving ? "Saving..." : "Save Changes"}
-            </button>
+            </Button>
           </form>
         </div>
       )}

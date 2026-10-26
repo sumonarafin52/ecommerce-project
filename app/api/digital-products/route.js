@@ -7,6 +7,7 @@ import connectDB from "@/lib/db";
 import DigitalProduct from "@/models/DigitalProduct";
 import { hasPermission } from "@/lib/rbac";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
+import { buildDigitalProductFields } from "@/lib/digitalProductInput";
 import { serverError } from "@/lib/apiError";
 
 // GET: admin — sob digital product list
@@ -39,23 +40,17 @@ export async function POST(request) {
       return NextResponse.json({ success: false, message: "No permission" }, { status: 403 });
     }
 
-    const { title, description, fileUrl, fileName, fileSize, fileType } = await request.json();
-
-    if (!title || !title.trim()) {
-      return NextResponse.json({ success: false, message: "Title is required" }, { status: 400 });
+    // Validation, clamping and the storage-host check all live in
+    // lib/digitalProductInput so create and update can't accept different
+    // field sets — which is how the new fields (download limit, expiry,
+    // licence, versions, extra files) used to get silently dropped.
+    const body = await request.json().catch(() => ({}));
+    const { fields, error } = buildDigitalProductFields(body);
+    if (error) {
+      return NextResponse.json({ success: false, message: error }, { status: 400 });
     }
-    if (!fileUrl) {
-      return NextResponse.json({ success: false, message: "File upload required" }, { status: 400 });
-    }
 
-    const item = await DigitalProduct.create({
-      title: title.trim(),
-      description: description || "",
-      fileUrl,
-      fileName: fileName || "",
-      fileSize: Number(fileSize) || 0,
-      fileType: fileType || "",
-    });
+    const item = await DigitalProduct.create(fields);
 
     return NextResponse.json({ success: true, data: item }, { status: 201 });
   } catch (error) {

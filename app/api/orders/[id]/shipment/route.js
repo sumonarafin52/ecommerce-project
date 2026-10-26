@@ -7,6 +7,7 @@ import { hasPermission } from "@/lib/rbac";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { notify } from "@/lib/notify";
 import { serverError } from "@/lib/apiError";
+import { customerTracking } from "@/lib/customerTracking";
 
 export async function GET(request, { params }) {
   try {
@@ -18,17 +19,27 @@ export async function GET(request, { params }) {
 
     const order = await Order.findById(params.id)
       .populate("shipment.carrier", "name logo trackingUrlTemplate phone")
-      .populate("shipment.method", "name estimatedDelivery");
+      .populate("shipment.method", "name estimatedDelivery")
+      // The admin's "Create shipment" writes to fulfillments, so this is
+      // where a modern order's parcels actually are.
+      .populate("fulfillments.carrier", "name trackingUrlTemplate");
     if (!order) {
       return NextResponse.json({ success: false, message: "Order not found" }, { status: 404 });
     }
-    const isOwner = order.user.toString() === session.user.id;
+    // null on a guest order — this threw a 500, so neither staff nor the
+    // guest could see tracking for an order placed without an account.
+    const isOwner = !!order.user && order.user.toString() === session.user.id;
     const isStaff = await hasPermission(session, "orders");
     if (!isOwner && !isStaff) {
       return NextResponse.json({ success: false, message: "Not authorized" }, { status: 403 });
     }
 
-    return NextResponse.json({ success: true, data: { orderStatus: order.orderStatus, shipment: order.shipment } });
+    // `shipment` stays in the response for anything still reading the legacy
+    // field; `shipments` is the one that covers every parcel on the order.
+    return NextResponse.json({
+      success: true,
+      data: { orderStatus: order.orderStatus, shipment: order.shipment, ...customerTracking(order) },
+    });
   } catch (error) {
     return serverError(error, "api/orders/[id]/shipment");
   }
@@ -89,6 +100,8 @@ export async function PUT(request, { params }) {
       if (trackingMessages[body.addEvent.status]) {
         await notify({
           user: order.user,
+          guestEmail: order.guestEmail,
+          phone: order.shippingAddress?.phone,
           type: "shipment",
           title: "Delivery update",
           message: trackingMessages[body.addEvent.status],

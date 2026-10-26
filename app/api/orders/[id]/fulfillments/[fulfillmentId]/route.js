@@ -77,6 +77,8 @@ export async function PUT(request, { params }) {
       if (trackingMessages[body.addEvent.status]) {
         await notify({
           user: order.user,
+          guestEmail: order.guestEmail,
+          phone: order.shippingAddress?.phone,
           type: "shipment",
           title: "Delivery update",
           message: trackingMessages[body.addEvent.status],
